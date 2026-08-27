@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         GESI - Obligatorios NEW 1.0
+// @name         GESI - Obligatorios NEW 1.1
 // @namespace    http://tampermonkey.net/
-// @version      2.10
+// @version      2.11
 // @description  Marca campos obligatorios de forma persistente (fondo azul) y permite excluir campos específicos; soporta manualIds con reintentos. Añade validación de FechaIntervencion por mes/año.
 // @match        https://gesiapps.saludcapital.gov.co/*
 // @grant        none
@@ -18,6 +18,28 @@ const CONFIG = {
 const DEBUG=false;
 function log(...a){ if(DEBUG) console.log('[GESI]',...a); }
 function warn(...a){ if(DEBUG) console.warn('[GESI]',...a); }
+
+// NUEVO: bus de mutaciones compartido — un solo MutationObserver para todo el script,
+// en vez de uno por bloque. Además, ignora las mutaciones que el propio script provoca
+// (como insertar/quitar el div de error) para no disparar reescaneos innecesarios.
+let gesiInternalMutation = false;
+function gesiMarkInternalMutation(fn){
+  gesiInternalMutation = true;
+  try { fn(); } finally { setTimeout(()=>{ gesiInternalMutation = false; }, 0); }
+}
+const gesiMutationCallbacks = [];
+function gesiOnMutation(cb){ gesiMutationCallbacks.push(cb); }
+let gesiObserverStarted = false;
+function gesiStartSharedObserver(){
+  if(gesiObserverStarted) return;
+  gesiObserverStarted = true;
+  const observer = new MutationObserver(() => {
+    if(gesiInternalMutation) return;
+    for(const cb of gesiMutationCallbacks){ try { cb(); } catch(e){} }
+  });
+  observer.observe(document.body, {childList:true, subtree:true});
+  window.__gesiObligatoriosObserver = observer;
+}
 
 // Inserta regla CSS persistente que respeta la exclusión
 (function insertCss(){
@@ -41,7 +63,7 @@ function controlesEnFila(fila){
   if(controles.length>1) return controles.find(c=>c.tagName==='SELECT') || controles[0];
   const siguiente=fila.nextElementSibling;
   if(siguiente){ const c2=soloVisibles(Array.from(siguiente.querySelectorAll('input, select, textarea'))); if(c2.length>0) return c2[0]; }
-  return null; // sin match: el llamador decide si sigue con otro fallback
+  return null;
 }
 
 function obtenerControlGESI(idCampo, tdEtiqueta){
@@ -67,9 +89,9 @@ function obtenerControlGESI(idCampo, tdEtiqueta){
   if(encontrado) return encontrado;
   if(tdEtiqueta){
     const fila=tdEtiqueta.closest && tdEtiqueta.closest('tr');
-    if(fila){ const r=controlesEnFila(fila); if(r) return r; } // sin match sigue al fallback de label
+    if(fila){ const r=controlesEnFila(fila); if(r) return r; }
   }
-  try { // label fallback
+  try {
     for(const l of Array.from(document.querySelectorAll('label, td, th, span'))){
       const txt=(l.textContent||'').toLowerCase();
       if(txt.includes(idCampo.toLowerCase())){
@@ -131,14 +153,13 @@ function findRequiredLabelNodes(){
   return nodes;
 }
 
-// comprobar si un elemento coincide con alguna exclusión (manualExcludes)
 function elementIsExcluded(el){
   if(!el) return false;
   for(const ex of CONFIG.manualExcludes||[]){
     try {
       if(typeof ex!=='string') continue;
       if(ex.startsWith('#')||ex.startsWith('.')||ex.includes('[')||ex.includes(' ')){
-        try { if(el.matches && el.matches(ex)) return true; } catch(e){} // selector inválido para matches -> ignorar
+        try { if(el.matches && el.matches(ex)) return true; } catch(e){}
         try { if(el.closest && el.closest(ex)) return true; } catch(e){}
       } else {
         const id=el.id||'', name=el.name||'';
@@ -151,7 +172,6 @@ function elementIsExcluded(el){
 
 function marcarSiNoExcluido(el, nuevos){ if(!elementIsExcluded(el)) nuevos.add(el); else try { el.dataset.gesiExcluir='true'; } catch(e){} }
 
-// marcarCamposObligatorios con diffing y respeto a exclusiones
 function marcarCamposObligatorios(){
   const nuevos=new Set();
   for(const nodo of findRequiredLabelNodes()){
@@ -178,7 +198,7 @@ function marcarCamposObligatorios(){
   }
   const actuales=new Set(Array.from(document.querySelectorAll('[data-gesi-obligatorio="true"]')));
   for(const el of actuales) if(!nuevos.has(el)){
-    try { delete el.dataset.gesiObligatorio; delete el.dataset.gesiEtiqueta; delete el.dataset.gesiControlId; delete el.dataset.gesiManual; limpiarEstiloInline(el); } catch(e){} // no borra data-gesi-excluir: permite reexcluir
+    try { delete el.dataset.gesiObligatorio; delete el.dataset.gesiEtiqueta; delete el.dataset.gesiControlId; delete el.dataset.gesiManual; limpiarEstiloInline(el); } catch(e){}
   }
   for(const el of nuevos) if(!actuales.has(el)){
     try { el.dataset.gesiObligatorio='true'; if(el.dataset.gesiExcluir) delete el.dataset.gesiExcluir; } catch(e){}
@@ -186,7 +206,6 @@ function marcarCamposObligatorios(){
   log('marcado diff: actuales=', actuales.size, 'nuevos=', nuevos.size);
 }
 
-// manualIds con reintentos
 const pendingManualIds=new Map();
 function tryResolveManualId(id){
   const el=obtenerControlGESI(id, null) || (id.startsWith('#') ? document.querySelector(id) : document.getElementById(id));
@@ -208,7 +227,6 @@ function schedulePendingRetries(){
   }, 800);
 }
 
-// Helpers públicos: añadir/quitar exclusiones dinámicamente
 function marcarOEliminarExcluir(idOrSelector, marcar){
   try {
     const setFlag=el=>{ try { marcar ? el.dataset.gesiExcluir='true' : delete el.dataset.gesiExcluir; } catch(e){} };
@@ -262,15 +280,12 @@ function initManualIdsFromConfig(){
   for(const ex of CONFIG.manualExcludes||[]) try { window.gesi_addExclude(ex); } catch(e){}
 }
 
-// Debounce + observer
 let tmr=null;
 function actualizarObligatoriosGESI(){ if(tmr) clearTimeout(tmr); tmr=setTimeout(()=>{ tmr=null; marcarCamposObligatorios(); }, CONFIG.debounceMs); }
 function iniciarDetectorObligatorios(){
   actualizarObligatoriosGESI();
-  if(window.__gesiObligatoriosObserver) return;
-  const observer=new MutationObserver(()=>actualizarObligatoriosGESI());
-  observer.observe(document.body, {childList:true, subtree:true});
-  window.__gesiObligatoriosObserver=observer;
+  gesiOnMutation(actualizarObligatoriosGESI);
+  gesiStartSharedObserver();
   document.addEventListener('click', (e)=>{
     const boton=e.target.closest && e.target.closest('button, a, li, [role="tab"]');
     if(!boton) return;
@@ -284,12 +299,13 @@ initManualIdsFromConfig();
 
 // BLOQUE ADICIONAL: Validación FechaIntervencion por mes/año permitido
 (function enforceFechaMes() {
-  const ALLOWED_MONTH=8; // 1=enero ... 8=agosto
-  const ALLOWED_YEAR=2026; // número o null para permitir cualquier año
+  const ALLOWED_MONTH=8; const ALLOWED_YEAR=2026;
   const DATE_SELECTOR='#FechaIntervencion', PRIMARY_SUBMIT_SELECTOR='#botonActualizarInformacion';
   const ADDITIONAL_SUBMIT_SELECTORS=['button[type="submit"]','input[type="submit"]'];
-  const ENFORCE_ON_CREATE_ONLY=true; // true = validar sólo al CREAR (ID registro === 0). false = validar siempre
+  const ENFORCE_ON_CREATE_ONLY=true;
   const MESSAGE_CLASS='__gesi_fecha_error', POLL_INTERVAL_MS=300;
+
+  let cachedButtons = [];
 
   function parseDateDDMMYYYY(str){
     if(!str) return null;
@@ -300,11 +316,11 @@ initManualIdsFromConfig();
   }
 
   function detectCreationMode(){
-    try { // 1) title del submit principal (ej. "... | ID registro:  0")
+    try {
       const btn=document.querySelector(PRIMARY_SUBMIT_SELECTOR);
       if(btn && btn.title){ const m=btn.title.match(/ID\s*registro\s*[:\-]?\s*(\d+)/i); if(m) return parseInt(m[1].trim(),10)===0; }
     } catch(e){}
-    try { // 2) inputs ocultos con id/registro en el nombre
+    try {
       for(const inp of Array.from(document.querySelectorAll('input[type="hidden"], input'))){
         const nm=(inp.name||'').toLowerCase(), id=(inp.id||'').toLowerCase();
         if(/idregistro|registroid|id_record|id_registro|idregistro/i.test(nm+' '+id)){
@@ -313,8 +329,8 @@ initManualIdsFromConfig();
         }
       }
     } catch(e){}
-    try { const u=location.href.toLowerCase(); if(u.includes('/nuevo')||u.includes('accion=nuevo')||u.includes('mode=create')||u.includes('create')) return true; } catch(e){} // 3) url de creación
-    return null; // 4) indeterminado
+    try { const u=location.href.toLowerCase(); if(u.includes('/nuevo')||u.includes('accion=nuevo')||u.includes('mode=create')||u.includes('create')) return true; } catch(e){}
+    return null;
   }
 
   function getButtonsSet(){
@@ -325,31 +341,36 @@ initManualIdsFromConfig();
       const txt=(b.innerText||b.value||'').toLowerCase();
       if(/crear|guardar|registrar|enviar|actualizar|save|create|confirmar/.test(txt)) set.add(b);
     });
-    return Array.from(set);
+    cachedButtons = Array.from(set);
+    return cachedButtons;
   }
 
   function clearError(inputEl){
     if(!inputEl) return;
-    try { inputEl.style.border=''; inputEl.style.background=''; const prev=(inputEl.parentNode||document).querySelector('.'+MESSAGE_CLASS); if(prev) prev.remove(); } catch(e){}
-    getButtonsSet().forEach(b=>{ try { b.disabled=false; } catch(e){} });
+    gesiMarkInternalMutation(() => {
+      try { inputEl.style.border=''; inputEl.style.background=''; const prev=(inputEl.parentNode||document).querySelector('.'+MESSAGE_CLASS); if(prev) prev.remove(); } catch(e){}
+    });
+    cachedButtons.forEach(b=>{ try { b.disabled=false; } catch(e){} });
   }
 
   function showError(inputEl, msg){
     if(!inputEl) return;
     clearError(inputEl);
-    inputEl.style.border='2px solid red'; inputEl.style.background='#fff0f0';
-    const div=document.createElement('div');
-    div.className=MESSAGE_CLASS; div.textContent=msg;
-    Object.assign(div.style, { color:'#b30000', background:'#ffe6e6', padding:'6px', marginTop:'4px', border:'1px solid #ff9999', borderRadius:'4px', fontSize:'12px' });
-    try { if(inputEl.parentNode) inputEl.parentNode.appendChild(div); else document.body.appendChild(div); } catch(e){ document.body.appendChild(div); }
-    getButtonsSet().forEach(b=>{ try { b.disabled=true; } catch(e){} });
+    gesiMarkInternalMutation(() => {
+      inputEl.style.border='2px solid red'; inputEl.style.background='#fff0f0';
+      const div=document.createElement('div');
+      div.className=MESSAGE_CLASS; div.textContent=msg;
+      Object.assign(div.style, { color:'#b30000', background:'#ffe6e6', padding:'6px', marginTop:'4px', border:'1px solid #ff9999', borderRadius:'4px', fontSize:'12px' });
+      try { if(inputEl.parentNode) inputEl.parentNode.appendChild(div); else document.body.appendChild(div); } catch(e){ document.body.appendChild(div); }
+    });
+    cachedButtons.forEach(b=>{ try { b.disabled=true; } catch(e){} });
   }
 
   function checkAndToggle(){
     const input=document.querySelector(DATE_SELECTOR);
-    if(!input) return true; // no hay campo: no bloquear
-    const mode=detectCreationMode(); // true=create, false=edit, null=indeterminado
-    if(ENFORCE_ON_CREATE_ONLY && (mode===false||mode===null)){ clearError(input); return true; } // en edición o indeterminado no se bloquea
+    if(!input) return true;
+    const mode=detectCreationMode();
+    if(ENFORCE_ON_CREATE_ONLY && (mode===false||mode===null)){ clearError(input); return true; }
     const val=(input.value||'').trim();
     if(!val){ showError(input, '⚠ Fecha vacía. Debe ingresar una fecha en formato DD/MM/AAAA del mes permitido.'); return false; }
     const dt=parseDateDDMMYYYY(val);
@@ -378,9 +399,15 @@ initManualIdsFromConfig();
     });
   }
 
+  let botonesTimer = null;
+  function actualizarBotonesGESI(){
+    if(botonesTimer) clearTimeout(botonesTimer);
+    botonesTimer = setTimeout(()=>{ botonesTimer=null; attachButtonClickPrevention(); }, CONFIG.debounceMs);
+  }
   function observeDomForButtons(){
     attachButtonClickPrevention();
-    new MutationObserver(()=>attachButtonClickPrevention()).observe(document.body, { childList:true, subtree:true });
+    gesiOnMutation(actualizarBotonesGESI);
+    gesiStartSharedObserver();
   }
 
   function start(){
@@ -391,7 +418,7 @@ initManualIdsFromConfig();
       ['input','change','blur'].forEach(ev=>input.addEventListener(ev, ()=>setTimeout(checkAndToggle,120), true));
       let lastVal=input.value;
       setInterval(()=>{ const cur=(input.value||'').trim(); if(cur!==lastVal){ lastVal=cur; checkAndToggle(); } }, POLL_INTERVAL_MS);
-      setInterval(()=>{ detectCreationMode(); checkAndToggle(); }, 1000); // re-evaluar modo por si el form se recarga dinámicamente
+      setInterval(()=>{ detectCreationMode(); checkAndToggle(); }, 1000);
       attachButtonClickPrevention();
       observeDomForButtons();
       setTimeout(checkAndToggle, 300);
