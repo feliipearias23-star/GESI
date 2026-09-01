@@ -2,7 +2,7 @@
 // @name        NNA
 // @namespace    UTIS_GESI
 // @version      3.11
-// @description  Automatización NNAT + Acudiente + Tipo de Intervención + Información Escolar + Síntomas + Condiciones Laborales + Decálogo de Salud (v3.11: Estado Civil ahora respeta el valor ya cargado en la ficha en vez de recalcularlo cada vez que se dispara el trigger de edad/tipoDoc)
+// @description  Automatización NNAT  
 // @match        https://gesiapps.saludcapital.gov.co/*
 // @grant        none
 // ==/UserScript==
