@@ -141,10 +141,6 @@
         });
     };
 
-    // NUEVO (v3.8): si el campo ya trae un valor (ficha existente) y todavía no
-    // está registrado como "manual" en esta sesión del script, lo marca como
-    // manual sin dispararle 'change' ni tocar su valor. Así el auto-asignado
-    // nunca pisa información que ya estaba guardada.
     const respetarValorExistente = (elemento) => {
         if (!elemento || modificadoManualmente.has(elemento)) return;
         if (elemento.value) {
@@ -384,9 +380,6 @@
         }
     };
 
-    // v3.8: antes de intentar auto-asignar cada campo del decálogo, si ya trae
-    // un valor cargado desde la ficha, se respeta (se marca "manual" sin
-    // pisarlo). Solo se aplica el valor por defecto si el campo llega vacío.
     const aplicarDecalogo = () => {
         DECALOGO.forEach((item) => {
             const compromiso = getElemento(item.compromiso);
