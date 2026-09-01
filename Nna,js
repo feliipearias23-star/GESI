@@ -141,6 +141,10 @@
         });
     };
 
+    // NUEVO (v3.8): si el campo ya trae un valor (ficha existente) y todavía no
+    // está registrado como "manual" en esta sesión del script, lo marca como
+    // manual sin dispararle 'change' ni tocar su valor. Así el auto-asignado
+    // nunca pisa información que ya estaba guardada.
     const respetarValorExistente = (elemento) => {
         if (!elemento || modificadoManualmente.has(elemento)) return;
         if (elemento.value) {
