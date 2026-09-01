@@ -127,7 +127,7 @@
     const getElemento = (id) => document.getElementById(id);
 
     // Color de resaltado para campos auto-asignados por el script (azul cielo)
-    const COLOR_AUTO = '#cceeff';
+    const COLOR_AUTO = '#64b4ff';
 
     // Marca un campo como "tocado por el usuario" para no volver a sobrescribirlo
     const marcarComoManual = (elemento) => {
