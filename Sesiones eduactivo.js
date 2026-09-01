@@ -30,7 +30,7 @@ const bgSuccess='rgba(50, 200, 150, 0.2)', $=s=>document.querySelector(s), $$=s=
         ultimoTipoDoc=docActual;
         const v=parseInt(docActual,10);
         if([59,60,61].includes(v)){ tipo_doc.style.backgroundColor=bgSuccess; aplicarMapa(mapaDocA); }
-        if([62,63,64,65,66,2482].includes(v)) aplicarMapa(mapaDocB);
+        if([62,63,64,65,66,2482,1640,1539].includes(v)) aplicarMapa(mapaDocB);
       }
       if(sexoActual!==ultimoSexo){
         ultimoSexo=sexoActual;
@@ -42,7 +42,7 @@ const bgSuccess='rgba(50, 200, 150, 0.2)', $=s=>document.querySelector(s), $$=s=
           sexo.style.backgroundColor=bgSuccess; set(genero,'4513'); set(orientacion,'4028'); set(identidad_genero,'4020');
         }
       }
-    }, 500);
+    }, 100);
   } catch(error) { console.error(error); }
 
   try { // BLOQUE 2: sincronizar institución
