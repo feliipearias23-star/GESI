@@ -402,24 +402,34 @@ const bgSuccess='rgba(50, 200, 150, 0.2)', $=s=>document.querySelector(s), $$=s=
     });
   }
 
-  function attachDocFilter(selector){
+ function attachDocFilter(selector, tipoDocSelector = '#valorControl17510'){
     const input=$(selector);
     if(!input) return;
+
+    const esAlfanumerico=()=>{
+      const tipoDoc=$(tipoDocSelector);
+      return tipoDoc && ['65','66'].includes(String(tipoDoc.value).trim());
+    };
+
     input.addEventListener('input',()=>{
-      const old=input.value, cleaned=old.replace(/[^\p{L}\p{N}]/gu,'');
+      const regex = esAlfanumerico() ? /[^\p{L}\p{N}]/gu : /[^\p{N}]/gu;
+      const old=input.value, cleaned=old.replace(regex,'');
       if(old!==cleaned) input.value=cleaned;
       input.style.border=''; input.style.background='';
       const prev=input.parentNode?input.parentNode.querySelector('.mensaje-doc'):null;
       if(prev) prev.remove();
     });
+
     input.addEventListener('paste',ev=>{
       ev.preventDefault();
-      const text=(ev.clipboardData||window.clipboardData).getData('text')||'', cleaned=text.replace(/[^\p{L}\p{N}]/gu,'');
+      const regex = esAlfanumerico() ? /[^\p{L}\p{N}]/gu : /[^\p{N}]/gu;
+      const text=(ev.clipboardData||window.clipboardData).getData('text')||'', cleaned=text.replace(regex,'');
       input.setRangeText(cleaned,input.selectionStart||0,input.selectionEnd||0,'end');
       input.dispatchEvent(new Event('input',{bubbles:true}));
     });
+
     input.addEventListener('blur',()=>{
-      const val=(input.value||'').trim(), min=6, max=11;
+      const val=(input.value||'').trim(), esAlfa=esAlfanumerico(), min=6, max=esAlfa?11:10;
       const prev=input.parentNode?input.parentNode.querySelector('.mensaje-doc'):null;
       if(prev) prev.remove();
       if(val.length===0) return;
@@ -427,17 +437,23 @@ const bgSuccess='rgba(50, 200, 150, 0.2)', $=s=>document.querySelector(s), $$=s=
         input.style.border='2px solid red'; input.style.background='#fff0f0';
         const div=document.createElement('div');
         div.className='mensaje-doc';
-        div.textContent=`⚠ El documento debe tener entre ${min} y ${max} caracteres (actual: ${val.length}).`;
+        div.textContent=`⚠ El documento debe tener entre ${min} y ${max} ${esAlfa?'caracteres':'números'} (actual: ${val.length}).`;
         Object.assign(div.style,{color:'#b30000',background:'#ffe6e6',padding:'6px',marginTop:'4px',border:'1px solid #ff9999',borderRadius:'4px',fontSize:'12px'});
         if(input.parentNode) input.parentNode.appendChild(div);
       }
     });
+
+    const tipoDoc=$(tipoDocSelector);
+    if(tipoDoc){
+      tipoDoc.addEventListener('change',()=>{ input.dispatchEvent(new Event('input',{bubbles:true})); });
+    }
   }
 
 function validateSessionDateMatchesIntervention(
   interventionSel,
   sessionDateSel,
-  sessionNumberSel
+  sessionNumberSel,
+  fichaNumberSel
 ) {
   const FLAG = '__gesi_fecha_sesion_validada__';
   if (window[FLAG]) return;
@@ -445,20 +461,36 @@ function validateSessionDateMatchesIntervention(
   const value = el => String(
     el?.value ||
     el?.getAttribute?.('value') ||
+    el?.textContent ||
     ''
   ).trim();
 
+  const esFichaNueva = () => {
+    const ficha = document.querySelector(fichaNumberSel);
+    if (!ficha) return true;
+    return value(ficha) === '';
+  };
+
+  if (!esFichaNueva()) {
+    window[FLAG] = true;
+    return;
+  }
+
   const normalize = date => {
     date = String(date || '').trim().split('T')[0];
-
     let m = date.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-
     return m
       ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
       : date;
   };
 
   const timer = setInterval(() => {
+    if (!esFichaNueva()) {
+      window[FLAG] = true;
+      clearInterval(timer);
+      return;
+    }
+
     const intervention = document.querySelector(interventionSel);
     const sessionDate = document.querySelector(sessionDateSel);
     const sessionNumber = document.querySelector(sessionNumberSel);
@@ -482,12 +514,7 @@ function validateSessionDateMatchesIntervention(
     window[FLAG] = true;
     clearInterval(timer);
 
-    if (
-      normalize(interventionValue) ===
-      normalize(sessionValue)
-    ) {
-      return;
-    }
+    if (normalize(interventionValue) === normalize(sessionValue)) return;
 
     alert(
       'La fecha de la sesión 1 (' +
@@ -508,7 +535,8 @@ function validateSessionDateMatchesIntervention(
   validateSessionDateMatchesIntervention(
     '#FechaIntervencion',
     '#valorControl17386',
-    '#valorControl17387'
+    '#valorControl17387',
+    '#Ficha_fic'
   );
 }
   if(document.readyState==='complete') start(); else window.addEventListener('load',start);
