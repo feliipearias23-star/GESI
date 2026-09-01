@@ -14,10 +14,7 @@
     'use strict';
 
     let bgSuccess = "rgba(50, 200, 150, 0.2)";
-
-    // Dispara change + input sobre un campo, para que la lógica interna de GESI
-    // (mostrar/ocultar u obligar campos dependientes, ej. "Modalidad de canalización")
-    // reaccione igual que si el usuario lo hubiera cambiado manualmente.
+    
     function setValueAndNotify(campo, valor) {
         if (!campo) return;
         campo.value = valor;
@@ -45,12 +42,6 @@
         // TODO: reemplazar el selector por el ID real del control "rol" cuando lo tengas.
         let rol = document.querySelector('#valorControlROL_PENDIENTE');
 
-            // DEBOUNCE_TIPO_DOC: milisegundos de espera sin cambios en tipo_doc antes de
-            // aplicar la lógica. Necesario porque el <select> nativo de "Tipo de documento"
-            // permite escribir varios dígitos seguidos (ej. "1" luego "3" para llegar a la
-            // opción 13), y cada tecla dispara un cambio de value intermedio. Sin este
-            // debounce, el script reaccionaba al primer dígito y marcaba nacionalidad/etnia/
-            // etc. con un valor equivocado antes de que el usuario terminara de escribir.
             const DEBOUNCE_TIPO_DOC = 700;
 
             let ultimoValorVistoTipoDoc = tipo_doc ? tipo_doc.value : '';
@@ -97,9 +88,7 @@
 
                 if (docActual !== ultimoValorVistoTipoDoc) {
                     ultimoValorVistoTipoDoc = docActual;
-                    // Cada vez que el valor cambia (posible tecla intermedia), se reinicia
-                    // el temporizador. La lógica solo se aplica cuando el valor deja de
-                    // cambiar durante DEBOUNCE_TIPO_DOC ms.
+                 
                     if (timeoutTipoDoc) clearTimeout(timeoutTipoDoc);
                     timeoutTipoDoc = setTimeout(() => aplicarLogicaTipoDoc(tipo_doc.value), DEBOUNCE_TIPO_DOC);
                 }
