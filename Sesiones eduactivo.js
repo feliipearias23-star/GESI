@@ -30,7 +30,7 @@ const bgSuccess='rgba(50, 200, 150, 0.2)', $=s=>document.querySelector(s), $$=s=
         ultimoTipoDoc=docActual;
         const v=parseInt(docActual,10);
         if([59,60,61].includes(v)){ tipo_doc.style.backgroundColor=bgSuccess; aplicarMapa(mapaDocA); }
-        if([62,63,64,65,66,2482,1640,1539].includes(v)) aplicarMapa(mapaDocB);
+        if([62,63,64,65,66,2482,1640,1639].includes(v)) aplicarMapa(mapaDocB);
       }
       if(sexoActual!==ultimoSexo){
         ultimoSexo=sexoActual;
