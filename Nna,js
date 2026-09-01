@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        NNA
-// @namespace    UTIS_GESI
+// @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
 // @version      3.11
 // @description  Automatización NNAT  
 // @match        https://gesiapps.saludcapital.gov.co/*
