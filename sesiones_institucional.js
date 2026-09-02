@@ -122,7 +122,7 @@
             let mejorar_manejo         = document.querySelector('#valorControl19183');
             let tomar_mejores          = document.querySelector('#valorControl19184');
             let mi_bienestar           = document.querySelector('#valorControl19186');
-
+            let nutricional            = document.querySelector('#valorControl19179');
             if (oms) {
                 if (oms.value == "")                                              { oms.value = "4182";  oms.style.backgroundColor = bgSuccess; }
                 if (find && find.value == "")                                     { find.value = "4452";                find.style.backgroundColor = bgSuccess; }
@@ -146,6 +146,8 @@
                 if (mejorar_manejo && mejorar_manejo.value == "")                 { mejorar_manejo.value = "4458";     mejorar_manejo.style.backgroundColor = bgSuccess; }
                 if (tomar_mejores && tomar_mejores.value == "")                   { tomar_mejores.value = "4458";      tomar_mejores.style.backgroundColor = bgSuccess; }
                 if (mi_bienestar && mi_bienestar.value == "")                     { mi_bienestar.value = "4460";       mi_bienestar.style.backgroundColor = bgSuccess; }
+                if (nutricional && nutricional.value == "")                       {nutricional.value = "4459";         nutricional.style.backgroundColor = bgSuccess; }
+
 
                 oms.addEventListener('change', function() {
                     if (find && find.value == "")                                     { find.value = "4452";                find.style.backgroundColor = bgSuccess; }
@@ -169,6 +171,8 @@
                     if (mejorar_manejo && mejorar_manejo.value == "")                 { mejorar_manejo.value = "4458";     mejorar_manejo.style.backgroundColor = bgSuccess; }
                     if (tomar_mejores && tomar_mejores.value == "")                   { tomar_mejores.value = "4458";      tomar_mejores.style.backgroundColor = bgSuccess; }
                     if (mi_bienestar && mi_bienestar.value == "")                     { mi_bienestar.value = "4460";       mi_bienestar.style.backgroundColor = bgSuccess; }
+                    if (nutricional && nutricional.value == "")                       {nutricional.value = "4459";         nutricional.style.backgroundColor = bgSuccess; }
+
                 });
             }
 
