@@ -1,14 +1,20 @@
 // ==UserScript==
 // @name        NNA
 // @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
-// @version      3.11
-// @description  Automatización NNAT  
+// @version      3.12
+// @description  Automatización NNAT
 // @match        https://gesiapps.saludcapital.gov.co/*
 // @grant        none
 // ==/UserScript==
 
 (function () {
     'use strict';
+
+    // ============================================================
+    // GUARD DE INSTANCIA ÚNICA (evita duplicados por recargas AJAX)
+    // ============================================================
+    if (window.__nnatUtisLoaded) return;
+    window.__nnatUtisLoaded = true;
 
     // ============================================================
     // IDS PRINCIPALES
@@ -222,7 +228,11 @@
         elemento.disabled = true;
         elemento.value = '';
         limpiarMensajesPorCampo(elemento);
+
+        // v3.12: se marca autoAsignando para que este dispatch no cuente como cambio manual
+        autoAsignando = true;
         elemento.dispatchEvent(new Event('change', { bubbles: true }));
+        autoAsignando = false;
 
         const visual = obtenerControlVisual(elemento);
         visual.style.backgroundColor = '#e9ecef';
@@ -741,7 +751,18 @@
 
     let ultimosValores = {};
 
-    setInterval(() => {
+    // v3.12: se guarda la referencia del intervalo para poder detenerlo
+    // si el formulario NNAT desaparece del DOM (navegación SPA/AJAX de GESI).
+    const intervaloPolling = setInterval(() => {
+        // Si el campo ancla del formulario ya no existe, este bloque de
+        // ficha se descargó: detenemos el polling para no seguir corriendo
+        // en segundo plano ni acumular instancias con el tiempo.
+        if (!getElemento(IDS.tipoDoc)) {
+            clearInterval(intervaloPolling);
+            window.__nnatUtisLoaded = false; // permite que una futura carga del bloque vuelva a inicializar el script
+            return;
+        }
+
         const valoresActuales = {};
         Object.entries(IDS_MONITOREADOS).forEach(([clave, id]) => {
             valoresActuales[clave] = getElemento(id)?.value;
