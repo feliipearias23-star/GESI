@@ -371,174 +371,174 @@ const bgSuccess='rgba(50, 200, 150, 0.2)', $=s=>document.querySelector(s), $$=s=
 
 // SCRIPT 4 — VALIDACIONES: NOMBRES, DOCUMENTO (6-11), FECHA INTERVENCIÓN
 (function addValidations() {
-  const NAME_SELECTORS=['#valorControl17508','#valorControl17509'];
-  const DOC_SELECTOR='#valorControl17511';
-  const SESSION1_DATE_SELECTOR='#valorControl17386';
-  const INTERVENTION_DATE_SELECTOR='#FechaIntervencion';
-  const nameSanitizeRegex=/[^\p{L}\s'-]/gu;
+  const NAME_SELECTORS = ['#valorControl17508', '#valorControl17509'];
+  const DOC_SELECTOR = '#valorControl17511';
+  const SESSION1_DATE_SELECTOR = '#valorControl17386';
+  const SESSION1_NUMBER_SELECTOR = '#valorControl17387';
+  const INTERVENTION_DATE_SELECTOR = '#FechaIntervencion';
+  const nameSanitizeRegex = /[^\p{L}\s'-]/gu;
 
-  function attachNameFilters(selector){
-    Array.from($$(selector)).forEach(input=>{
-      if(!input) return;
-      input.addEventListener('input',()=>{
-        const old=input.value, cleaned=old.replace(nameSanitizeRegex,'');
-        if(old!==cleaned){
-          input.value=cleaned; input.style.border='2px solid #e6a0a0'; input.style.background='#fff5f5';
+  function attachNameFilters(selector) {
+    Array.from($$(selector)).forEach(input => {
+      if (!input) return;
+      input.addEventListener('input', () => {
+        const old = input.value, cleaned = old.replace(nameSanitizeRegex, '');
+        if (old !== cleaned) {
+          input.value = cleaned; input.style.border = '2px solid #e6a0a0'; input.style.background = '#fff5f5';
           clearTimeout(input._nameValidTimer);
-          input._nameValidTimer=setTimeout(()=>{ input.style.border=''; input.style.background=''; },1200);
+          input._nameValidTimer = setTimeout(() => { input.style.border = ''; input.style.background = ''; }, 1200);
         }
       });
-      input.addEventListener('keypress',ev=>{
-        const ch=ev.key;
-        if(ev.ctrlKey||ev.metaKey||ev.altKey) return;
-        if(ch.length===1&&!ch.match(/[\p{L}\s'-]/u)) ev.preventDefault();
+      input.addEventListener('keypress', ev => {
+        const ch = ev.key;
+        if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+        if (ch.length === 1 && !ch.match(/[\p{L}\s'-]/u)) ev.preventDefault();
       });
-      input.addEventListener('paste',ev=>{
+      input.addEventListener('paste', ev => {
         ev.preventDefault();
-        const text=(ev.clipboardData||window.clipboardData).getData('text')||'', cleaned=text.replace(nameSanitizeRegex,'');
-        input.setRangeText(cleaned,input.selectionStart||0,input.selectionEnd||0,'end');
-        input.dispatchEvent(new Event('input',{bubbles:true}));
+        const text = (ev.clipboardData || window.clipboardData).getData('text') || '', cleaned = text.replace(nameSanitizeRegex, '');
+        input.setRangeText(cleaned, input.selectionStart || 0, input.selectionEnd || 0, 'end');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
       });
     });
   }
 
- function attachDocFilter(selector, tipoDocSelector = '#valorControl17510'){
-    const input=$(selector);
-    if(!input) return;
+  function attachDocFilter(selector, tipoDocSelector = '#valorControl17510') {
+    const input = $(selector);
+    if (!input) return;
 
-    const esAlfanumerico=()=>{
-      const tipoDoc=$(tipoDocSelector);
-      return tipoDoc && ['65','66'].includes(String(tipoDoc.value).trim());
+    const esAlfanumerico = () => {
+      const tipoDoc = $(tipoDocSelector);
+      return tipoDoc && ['65', '66'].includes(String(tipoDoc.value).trim());
     };
 
-    input.addEventListener('input',()=>{
+    input.addEventListener('input', () => {
       const regex = esAlfanumerico() ? /[^\p{L}\p{N}]/gu : /[^\p{N}]/gu;
-      const old=input.value, cleaned=old.replace(regex,'');
-      if(old!==cleaned) input.value=cleaned;
-      input.style.border=''; input.style.background='';
-      const prev=input.parentNode?input.parentNode.querySelector('.mensaje-doc'):null;
-      if(prev) prev.remove();
+      const old = input.value, cleaned = old.replace(regex, '');
+      if (old !== cleaned) input.value = cleaned;
+      input.style.border = ''; input.style.background = '';
+      const prev = input.parentNode ? input.parentNode.querySelector('.mensaje-doc') : null;
+      if (prev) prev.remove();
     });
 
-    input.addEventListener('paste',ev=>{
+    input.addEventListener('paste', ev => {
       ev.preventDefault();
       const regex = esAlfanumerico() ? /[^\p{L}\p{N}]/gu : /[^\p{N}]/gu;
-      const text=(ev.clipboardData||window.clipboardData).getData('text')||'', cleaned=text.replace(regex,'');
-      input.setRangeText(cleaned,input.selectionStart||0,input.selectionEnd||0,'end');
-      input.dispatchEvent(new Event('input',{bubbles:true}));
+      const text = (ev.clipboardData || window.clipboardData).getData('text') || '', cleaned = text.replace(regex, '');
+      input.setRangeText(cleaned, input.selectionStart || 0, input.selectionEnd || 0, 'end');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
     });
 
-    input.addEventListener('blur',()=>{
-      const val=(input.value||'').trim(), esAlfa=esAlfanumerico(), min=6, max=esAlfa?11:10;
-      const prev=input.parentNode?input.parentNode.querySelector('.mensaje-doc'):null;
-      if(prev) prev.remove();
-      if(val.length===0) return;
-      if(val.length<min||val.length>max){
-        input.style.border='2px solid red'; input.style.background='#fff0f0';
-        const div=document.createElement('div');
-        div.className='mensaje-doc';
-        div.textContent=`⚠ El documento debe tener entre ${min} y ${max} ${esAlfa?'caracteres':'números'} (actual: ${val.length}).`;
-        Object.assign(div.style,{color:'#b30000',background:'#ffe6e6',padding:'6px',marginTop:'4px',border:'1px solid #ff9999',borderRadius:'4px',fontSize:'12px'});
-        if(input.parentNode) input.parentNode.appendChild(div);
+    input.addEventListener('blur', () => {
+      const val = (input.value || '').trim(), esAlfa = esAlfanumerico(), min = 6, max = esAlfa ? 11 : 10;
+      const prev = input.parentNode ? input.parentNode.querySelector('.mensaje-doc') : null;
+      if (prev) prev.remove();
+      if (val.length === 0) return;
+      if (val.length < min || val.length > max) {
+        input.style.border = '2px solid red'; input.style.background = '#fff0f0';
+        const div = document.createElement('div');
+        div.className = 'mensaje-doc';
+        div.textContent = `⚠ El documento debe tener entre ${min} y ${max} ${esAlfa ? 'caracteres' : 'números'} (actual: ${val.length}).`;
+        Object.assign(div.style, { color: '#b30000', background: '#ffe6e6', padding: '6px', marginTop: '4px', border: '1px solid #ff9999', borderRadius: '4px', fontSize: '12px' });
+        if (input.parentNode) input.parentNode.appendChild(div);
       }
     });
 
-    const tipoDoc=$(tipoDocSelector);
-    if(tipoDoc){
-      tipoDoc.addEventListener('change',()=>{ input.dispatchEvent(new Event('input',{bubbles:true})); });
+    const tipoDoc = $(tipoDocSelector);
+    if (tipoDoc) {
+      tipoDoc.addEventListener('change', () => { input.dispatchEvent(new Event('input', { bubbles: true })); });
     }
   }
 
-function validateSessionDateMatchesIntervention(
-  interventionSel,
-  sessionDateSel,
-  sessionNumberSel,
-  fichaNumberSel
-) {
-  const FLAG = '__gesi_fecha_sesion_validada__';
-  if (window[FLAG]) return;
+  function validateSessionDateMatchesIntervention(
+    interventionSel,
+    sessionDateSel,
+    sessionNumberSel
+  ) {
+    const value = el => String(
+      el?.value ||
+      el?.getAttribute?.('value') ||
+      el?.textContent ||
+      ''
+    ).trim();
 
-  const value = el => String(
-    el?.value ||
-    el?.getAttribute?.('value') ||
-    el?.textContent ||
-    ''
-  ).trim();
+    const normalize = date => {
+      date = String(date || '').trim().split('T')[0];
+      let m = date.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+      return m
+        ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
+        : date;
+    };
 
-  const esFichaNueva = () => {
-    const ficha = document.querySelector(fichaNumberSel);
-    if (!ficha) return true;
-    return value(ficha) === '';
-  };
+    let estadoInicialCapturado = false;
+    let esSesion1Nueva = false;
+    let validado = false;
 
-  if (!esFichaNueva()) {
-    window[FLAG] = true;
-    return;
+    const timer = setInterval(() => {
+      if (validado) { clearInterval(timer); return; }
+
+      const intervention = document.querySelector(interventionSel);
+      const sessionDate = document.querySelector(sessionDateSel);
+      const sessionNumber = document.querySelector(sessionNumberSel);
+
+      if (!intervention || !sessionDate || !sessionNumber) return; // aún no están en el DOM
+
+      // La primera vez que vemos el campo, decidimos si es sesión 1 recién creada
+      // (vacío al detectarlo) o una sesión ya existente que se está reabriendo/editando.
+      if (!estadoInicialCapturado) {
+        estadoInicialCapturado = true;
+        esSesion1Nueva = value(sessionNumber) === '';
+        if (!esSesion1Nueva) {
+          // Ficha existente (o sesión 1 ya guardada) -> no validar en esta carga
+          validado = true;
+          clearInterval(timer);
+          return;
+        }
+      }
+
+      const number = value(sessionNumber).match(/\d+/);
+      if (!number) return; // aún no ha escrito el número de sesión
+
+      if (parseInt(number[0], 10) !== 1) {
+        // Está llenando otra sesión (2, 3...) -> no aplica esta validación
+        validado = true;
+        clearInterval(timer);
+        return;
+      }
+
+      const interventionValue = value(intervention);
+      const sessionValue = value(sessionDate);
+      if (!interventionValue || !sessionValue) return;
+
+      validado = true;
+      clearInterval(timer);
+
+      if (normalize(interventionValue) === normalize(sessionValue)) return;
+
+      alert(
+        'La fecha de la sesión 1 (' +
+        sessionValue +
+        ') no coincide con la fecha de intervención (' +
+        interventionValue +
+        ').'
+      );
+    }, 200);
   }
 
-  const normalize = date => {
-    date = String(date || '').trim().split('T')[0];
-    let m = date.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-    return m
-      ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
-      : date;
-  };
-
-  const timer = setInterval(() => {
-    if (!esFichaNueva()) {
-      window[FLAG] = true;
-      clearInterval(timer);
-      return;
-    }
-
-    const intervention = document.querySelector(interventionSel);
-    const sessionDate = document.querySelector(sessionDateSel);
-    const sessionNumber = document.querySelector(sessionNumberSel);
-
-    if (!intervention || !sessionDate || !sessionNumber) return;
-
-    const number = value(sessionNumber).match(/\d+/);
-    if (!number) return;
-
-    if (parseInt(number[0], 10) !== 1) {
-      window[FLAG] = true;
-      clearInterval(timer);
-      return;
-    }
-
-    const interventionValue = value(intervention);
-    const sessionValue = value(sessionDate);
-
-    if (!interventionValue || !sessionValue) return;
-
-    window[FLAG] = true;
-    clearInterval(timer);
-
-    if (normalize(interventionValue) === normalize(sessionValue)) return;
-
-    alert(
-      'La fecha de la sesión 1 (' +
-      sessionValue +
-      ') no coincide con la fecha de intervención (' +
-      interventionValue +
-      ').'
-    );
-  }, 200);
-}
   function start() {
-  NAME_SELECTORS.forEach((selector) => {
-    attachNameFilters(selector);
-  });
+    NAME_SELECTORS.forEach((selector) => {
+      attachNameFilters(selector);
+    });
 
-  attachDocFilter(DOC_SELECTOR);
+    attachDocFilter(DOC_SELECTOR);
 
-  validateSessionDateMatchesIntervention(
-    '#FechaIntervencion',
-    '#valorControl17386',
-    '#valorControl17387',
-    '#Ficha_fic'
-  );
-}
-  if(document.readyState==='complete') start(); else window.addEventListener('load',start);
+    validateSessionDateMatchesIntervention(
+      INTERVENTION_DATE_SELECTOR,
+      SESSION1_DATE_SELECTOR,
+      SESSION1_NUMBER_SELECTOR
+    );
+  }
+
+  if (document.readyState === 'complete') start(); else window.addEventListener('load', start);
 })(); // fin addValidations
 })();
