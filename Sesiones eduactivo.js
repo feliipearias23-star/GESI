@@ -450,68 +450,51 @@ const bgSuccess='rgba(50, 200, 150, 0.2)', $=s=>document.querySelector(s), $$=s=
     }
   }
 
-  function validateSessionDateMatchesIntervention(
-    interventionSel,
-    sessionDateSel,
-    sessionNumberSel
-  ) {
-    const value = el => String(
-      el?.value ||
-      el?.getAttribute?.('value') ||
-      el?.textContent ||
-      ''
-    ).trim();
+function validateSessionDateMatchesIntervention(
+  interventionSel,
+  sessionDateSel,
+  sessionNumberSel
+) {
+  const value = el => String(
+    el?.value ||
+    el?.getAttribute?.('value') ||
+    el?.textContent ||
+    ''
+  ).trim();
 
-    const normalize = date => {
-      date = String(date || '').trim().split('T')[0];
-      let m = date.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-      return m
-        ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
-        : date;
-    };
+  const normalize = date => {
+    date = String(date || '').trim().split('T')[0];
+    let m = date.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+    return m
+      ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
+      : date;
+  };
 
-    let estadoInicialCapturado = false;
-    let esSesion1Nueva = false;
-    let validado = false;
+  let esSesion1Nueva = false;
+  let noAplica = false; // true = ya sabemos que no es sesión 1 -> dejar de validar para siempre en esta carga
 
-    const timer = setInterval(() => {
-      if (validado) { clearInterval(timer); return; }
+  function attachListeners(intervention, sessionDate, sessionNumber) {
+    // Estado inicial: ¿el número de sesión llegó vacío (sesión 1 recién creada) o ya traía valor (ficha existente)?
+    esSesion1Nueva = value(sessionNumber) === '';
+    if (!esSesion1Nueva) {
+      noAplica = true;
+      return; // ficha existente reabierta -> nunca validamos en esta carga
+    }
 
-      const intervention = document.querySelector(interventionSel);
-      const sessionDate = document.querySelector(sessionDateSel);
-      const sessionNumber = document.querySelector(sessionNumberSel);
+    function check() {
+      if (noAplica) return;
 
-      if (!intervention || !sessionDate || !sessionNumber) return; // aún no están en el DOM
+      const num = value(sessionNumber).match(/^\d+$/); // valor final y completo, ya no en vivo
+      if (!num) return; // sigue vacío o incompleto
 
-      // La primera vez que vemos el campo, decidimos si es sesión 1 recién creada
-      // (vacío al detectarlo) o una sesión ya existente que se está reabriendo/editando.
-      if (!estadoInicialCapturado) {
-        estadoInicialCapturado = true;
-        esSesion1Nueva = value(sessionNumber) === '';
-        if (!esSesion1Nueva) {
-          // Ficha existente (o sesión 1 ya guardada) -> no validar en esta carga
-          validado = true;
-          clearInterval(timer);
-          return;
-        }
-      }
-
-      const number = value(sessionNumber).match(/\d+/);
-      if (!number) return; // aún no ha escrito el número de sesión
-
-      if (parseInt(number[0], 10) !== 1) {
-        // Está llenando otra sesión (2, 3...) -> no aplica esta validación
-        validado = true;
-        clearInterval(timer);
+      if (parseInt(num[0], 10) !== 1) {
+        noAplica = true; // es sesión 2, 13, 14... -> esta validación no aplica más
         return;
       }
 
       const interventionValue = value(intervention);
       const sessionValue = value(sessionDate);
       if (!interventionValue || !sessionValue) return;
-
-      validado = true;
-      clearInterval(timer);
 
       if (normalize(interventionValue) === normalize(sessionValue)) return;
 
@@ -522,9 +505,24 @@ const bgSuccess='rgba(50, 200, 150, 0.2)', $=s=>document.querySelector(s), $$=s=
         interventionValue +
         ').'
       );
-    }, 200);
+    }
+
+    sessionNumber.addEventListener('blur', check);
+    sessionDate.addEventListener('blur', check);
+    sessionDate.addEventListener('change', check);
   }
 
+  const waitTimer = setInterval(() => {
+    const intervention = document.querySelector(interventionSel);
+    const sessionDate = document.querySelector(sessionDateSel);
+    const sessionNumber = document.querySelector(sessionNumberSel);
+
+    if (!intervention || !sessionDate || !sessionNumber) return;
+
+    clearInterval(waitTimer);
+    attachListeners(intervention, sessionDate, sessionNumber);
+  }, 200);
+}
   function start() {
     NAME_SELECTORS.forEach((selector) => {
       attachNameFilters(selector);
