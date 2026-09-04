@@ -42,7 +42,7 @@ const bgSuccess='rgba(50, 200, 150, 0.2)', $=s=>document.querySelector(s), $$=s=
           sexo.style.backgroundColor=bgSuccess; set(genero,'4513'); set(orientacion,'4028'); set(identidad_genero,'4020');
         }
       }
-    }, 100);
+    }, );
   } catch(error) { console.error(error); }
 
   try { // BLOQUE 2: sincronizar institución
