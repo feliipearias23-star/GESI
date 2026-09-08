@@ -301,7 +301,7 @@ initManualIdsFromConfig();
 
 // BLOQUE ADICIONAL: Validación FechaIntervencion por mes/año permitido
 (function enforceFechaMes() {
-  const ALLOWED_MONTH=8; // 1=enero ... 8=agosto
+  const ALLOWED_MONTH=9; // 1=enero ... 8=agosto
   const ALLOWED_YEAR=2026; // número o null para permitir cualquier año
   const DATE_SELECTOR='#FechaIntervencion', PRIMARY_SUBMIT_SELECTOR='#botonActualizarInformacion';
   const ADDITIONAL_SUBMIT_SELECTORS=['button[type="submit"]','input[type="submit"]'];
