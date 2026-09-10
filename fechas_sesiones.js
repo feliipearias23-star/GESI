@@ -165,5 +165,3 @@
     observer.observe(document.body, { childList: true, subtree: true });
   });
 })();
-fechas_sesiones.js
-Mostrando fechas_sesiones.js
