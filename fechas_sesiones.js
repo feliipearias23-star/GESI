@@ -1,16 +1,7 @@
-
 (function () {
   'use strict';
 
   // ================= RESTRICCIÓN POR BASE =================
-  // Esta validación solo debe correr en las bases 107, 113, 114 y 112.
-  // #Id_Base puede no existir todavía en el DOM en el momento en que este
-  // script se inyecta (la ficha puede cargar el detalle un instante
-  // después del shell inicial de la página) -- se espera con un sondeo
-  // liviano a que aparezca CON un valor cargado antes de decidir si el
-  // resto del código corre o no. Si nunca aparece (pantalla sin ficha,
-  // listados, login, etc.) se deja de sondear a los 20s en vez de dejar
-  // un timer corriendo para siempre.
   var BASES_PERMITIDAS = ['107', '113', '114', '112'];
   var ESPERA_INTERVALO_MS = 300;
   var ESPERA_MAX_MS = 20000;
@@ -25,16 +16,12 @@
         return;
       }
       transcurrido += ESPERA_INTERVALO_MS;
-      if (transcurrido >= ESPERA_MAX_MS) {
-        clearInterval(intervalo);
-        // Nunca apareció #Id_Base con valor -- no es una pantalla de
-        // ficha, o tardó demasiado. No se hace nada más.
-      }
+      if (transcurrido >= ESPERA_MAX_MS) clearInterval(intervalo);
     }, ESPERA_INTERVALO_MS);
   }
 
   esperarIdBaseYArrancar(function (idBase) {
-    if (BASES_PERMITIDAS.indexOf(idBase) === -1) return; // base no permitida: no se activa nada
+    if (BASES_PERMITIDAS.indexOf(idBase) === -1) return;
 
     // ================= UTILIDADES DE FECHA =================
     function parseDDMMAAAA(str) {
@@ -75,46 +62,77 @@
       input.setCustomValidity('');
     }
 
-    // ================= CACHE DE CAMPOS "Fecha de sesión" =================
+    // ================= CACHE: CAMPOS DE FECHA CLASIFICADOS =================
+    // Un solo recorrido del DOM arma tanto la lista ordenada de "Fecha de
+    // sesión" (para la cadena anterior/siguiente) como el mapa de qué tipo
+    // es cada input (sesión, nacimiento, u otro). Así cada tipo recibe
+    // solo las reglas que le corresponden.
     const SELECTOR_LABEL = 'td[title^="Control:"]';
     const SELECTOR_INPUT = 'input[placeholder="DD/MM/AAAA"]';
-    let cacheCampos = null;
 
-    function construirCamposFechaSesion() {
-      const inputs = [];
+    let cacheSesiones = null;
+    let cacheTipos = null; // Map<input, 'sesion' | 'nacimiento'>
+
+    function reconstruirCache() {
+      const sesiones = [];
+      const tipos = new Map();
+
       document.querySelectorAll(SELECTOR_LABEL).forEach(td => {
-        if (!/Fecha de sesi[oó]n/i.test(td.textContent)) return;
         const match = td.getAttribute('title').match(/valorControl(\d+)/);
         if (!match) return;
         const input = document.getElementById('valorControl' + match[1]);
-        if (input && input.matches(SELECTOR_INPUT)) inputs.push(input);
+        if (!input || !input.matches(SELECTOR_INPUT)) return;
+
+        const texto = td.textContent;
+        if (/Fecha de sesi[oó]n/i.test(texto)) {
+          tipos.set(input, 'sesion');
+          sesiones.push(input);
+        } else if (/Fecha de nacimiento/i.test(texto)) {
+          tipos.set(input, 'nacimiento');
+        }
       });
-      inputs.sort((a, b) =>
+
+      sesiones.sort((a, b) =>
         (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1
       );
-      return inputs;
+
+      cacheSesiones = sesiones;
+      cacheTipos = tipos;
     }
 
     function getCamposFechaSesion() {
-      if (!cacheCampos) cacheCampos = construirCamposFechaSesion();
-      return cacheCampos;
+      if (!cacheSesiones) reconstruirCache();
+      return cacheSesiones;
+    }
+
+    function getTipoCampo(input) {
+      if (!cacheTipos) reconstruirCache();
+      return cacheTipos.get(input) || null;
     }
 
     function invalidarCache() {
-      cacheCampos = null;
+      cacheSesiones = null;
+      cacheTipos = null;
     }
 
     // ================= VALIDACIÓN =================
-    function validarCampoSesion(input) {
+    function validarCampoFecha(input) {
       limpiarError(input);
 
       const valor = getValorFecha(input);
       if (!valor) return;
 
+      const tipo = getTipoCampo(input);
       const hoy = hoySinHora();
+
+      // Regla universal: ninguna fecha (sesión o nacimiento) puede ser futura.
       if (valor > hoy) {
         return marcarError(input, 'La fecha no puede ser mayor a la fecha actual.');
       }
+
+      // Fecha de nacimiento (u otros campos no clasificados) no llevan más
+      // reglas: pueden ser perfectamente anteriores a FechaIntervencion.
+      if (tipo !== 'sesion') return;
 
       const fechaIntervencion = getValorFecha(document.getElementById('FechaIntervencion'));
       if (fechaIntervencion && valor < fechaIntervencion) {
@@ -141,17 +159,21 @@
     }
 
     function revalidarTodas() {
-      getCamposFechaSesion().forEach(validarCampoSesion);
+      getCamposFechaSesion().forEach(validarCampoFecha);
+      const nacimiento = Array.from(cacheTipos.entries())
+        .filter(([, tipo]) => tipo === 'nacimiento')
+        .map(([input]) => input);
+      nacimiento.forEach(validarCampoFecha);
     }
 
     // ================= EVENTOS (DELEGACIÓN) =================
     document.addEventListener('blur', e => {
-      if (e.target.matches(SELECTOR_INPUT)) validarCampoSesion(e.target);
+      if (e.target.matches(SELECTOR_INPUT)) validarCampoFecha(e.target);
     }, true);
 
     document.addEventListener('input', e => {
       if (!e.target.matches(SELECTOR_INPUT)) return;
-      e.target.value.length === 10 ? validarCampoSesion(e.target) : limpiarError(e.target);
+      e.target.value.length === 10 ? validarCampoFecha(e.target) : limpiarError(e.target);
     });
 
     document.addEventListener('change', e => {
