@@ -1,6 +1,5 @@
 (function () {
   'use strict';
-
   // ================= RESTRICCIÓN POR BASE =================
   var BASES_PERMITIDAS = ['107', '113', '114', '112'];
   var ESPERA_INTERVALO_MS = 300;
