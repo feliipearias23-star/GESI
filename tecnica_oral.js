@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TECNICA ORAL PRO
 // @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
-// @version      2025-06-09
+// @version      2025-06-09.1
 // @description  Automatiza + validaciones + UI pro
 // @match        https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
 // @grant        none
@@ -233,6 +233,18 @@
         sexo.addEventListener("change", actualizarGenero);
         numeroDocumento.addEventListener("blur", validar);  // Cambié 'input' por 'blur'
         edad.addEventListener("input", validar);
+        edad.addEventListener("change", validar);
+
+        // 👀 WATCHER: la página GESI autocompleta "edad" a partir de la fecha
+        // de nacimiento sin disparar eventos input/change nativos, así que
+        // vigilamos el valor directamente con polling.
+        let ultimaEdadVista = edad.value;
+        setInterval(() => {
+            if (edad.value !== ultimaEdadVista) {
+                ultimaEdadVista = edad.value;
+                validar();
+            }
+        }, 400);
 
         // 🟢 INICIO
         actualizarGenero();
