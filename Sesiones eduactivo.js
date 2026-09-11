@@ -430,7 +430,7 @@ const bgSuccess='rgba(50, 200, 150, 0.2)', $=s=>document.querySelector(s), $$=s=
     });
 
     input.addEventListener('blur', () => {
-      const val = (input.value || '').trim(), esAlfa = esAlfanumerico(), min = 6, max = esAlfa ? 11 : 10;
+      const val = (input.value || '').trim(), esAlfa = esAlfanumerico(), min = 6, max = esAlfa ? 12 : 10;
       const prev = input.parentNode ? input.parentNode.querySelector('.mensaje-doc') : null;
       if (prev) prev.remove();
       if (val.length === 0) return;
