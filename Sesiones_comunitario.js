@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SESIONES COMUNITARIO V5
 // @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
-// @version      2.1
+// @version      2.2
 // @description  Autocompleta campos de Comunitario y marca automáticamente las sesiones de asistencia (multi-persona)
 // @author       You
 // @match        https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
@@ -14,7 +14,7 @@
     'use strict';
 
     let bgSuccess = "rgba(50, 200, 150, 0.2)";
-    
+
     function setValueAndNotify(campo, valor) {
         if (!campo) return;
         campo.value = valor;
@@ -88,7 +88,7 @@
 
                 if (docActual !== ultimoValorVistoTipoDoc) {
                     ultimoValorVistoTipoDoc = docActual;
-                 
+
                     if (timeoutTipoDoc) clearTimeout(timeoutTipoDoc);
                     timeoutTipoDoc = setTimeout(() => aplicarLogicaTipoDoc(tipo_doc.value), DEBOUNCE_TIPO_DOC);
                 }
@@ -280,7 +280,7 @@
         else window.addEventListener('load', detectar);
 
     })();
-// ===================== BLOQUE 3: VALIDACIONES NOMBRES / DOC / FECHA =====================
+// ===================== BLOQUE 3: VALIDACIONES NOMBRES / DOC =====================
     (function addValidations() {
         const $  = s => document.querySelector(s);
         const $$ = s => document.querySelectorAll(s);
@@ -383,92 +383,95 @@
             }
         }
 
-        function validateSessionDateMatchesIntervention(
-            interventionSel,
-            sessionDateSel,
-            sessionNumberSel,
-            fichaNumberSel
-        ) {
-            const FLAG = '__gesi_fecha_sesion_validada_comunitario__';
-            if (window[FLAG]) return;
+        const EDAD_SELECTOR = '#valorControl19956';
 
-            const value = el => String(
-                el?.value ||
-                el?.getAttribute?.('value') ||
-                el?.textContent ||
-                ''
-            ).trim();
-
-            const esFichaNueva = () => {
-                const ficha = document.querySelector(fichaNumberSel);
-                if (!ficha) return true;
-                return value(ficha) === '';
+        function attachDocAgeValidation(tipoDocSelector, edadSelector) {
+            // RC: 60 (0-6 años) | TI: 61 (7-17 años) | CC: 59 (18+ años)
+            // Cualquier otro valor de tipo_doc (extranjeros, etc.) no se valida.
+            const RANGOS = {
+                '59': { min: 18, max: Infinity, nombre: 'Cédula de Ciudadanía' },
+                '60': { min: 0,  max: 6,        nombre: 'Registro Civil' },
+                '61': { min: 7,  max: 17,       nombre: 'Tarjeta de Identidad' },
             };
 
-            if (!esFichaNueva()) {
-                window[FLAG] = true;
-                return;
+            let ultimoTipoDoc = '';
+            let ultimaEdad = '';
+
+            function limpiarMensaje(input) {
+                input.style.border = '';
+                input.style.background = '';
+                const prev = input.parentNode ? input.parentNode.querySelector('.mensaje-doc-edad') : null;
+                if (prev) prev.remove();
             }
 
-            const normalize = date => {
-                date = String(date || '').trim().split('T')[0];
-                let m = date.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-                return m
-                    ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
-                    : date;
-            };
+            function marcarCampo(input) {
+                input.style.border = '2px solid red';
+                input.style.background = '#fff0f0';
+            }
 
-            const timer = setInterval(() => {
-                if (!esFichaNueva()) {
-                    window[FLAG] = true;
-                    clearInterval(timer);
-                    return;
+            function mostrarMensaje(inputMensaje, otroInput, texto) {
+                limpiarMensaje(inputMensaje);
+                if (otroInput) limpiarMensaje(otroInput);
+                marcarCampo(inputMensaje);
+                if (otroInput) marcarCampo(otroInput);
+                const div = document.createElement('div');
+                div.className = 'mensaje-doc-edad';
+                div.textContent = texto;
+                Object.assign(div.style, {
+                    color: '#b30000',
+                    background: '#ffe6e6',
+                    padding: '6px',
+                    marginTop: '4px',
+                    border: '1px solid #ff9999',
+                    borderRadius: '4px',
+                    fontSize: '12px'
+                });
+                if (inputMensaje.parentNode) inputMensaje.parentNode.appendChild(div);
+            }
+
+            function validar() {
+                const tipoDocEl = document.querySelector(tipoDocSelector);
+                const edadEl = document.querySelector(edadSelector);
+                if (!tipoDocEl || !edadEl) return;
+
+                const tipoDocVal = String(tipoDocEl.value || '').trim();
+                const rango = RANGOS[tipoDocVal];
+
+                if (!rango) { limpiarMensaje(tipoDocEl); limpiarMensaje(edadEl); return; } // extranjeros/otros: no se valida
+
+                const edadVal = parseInt(edadEl.value, 10);
+                if (isNaN(edadVal)) { limpiarMensaje(tipoDocEl); limpiarMensaje(edadEl); return; } // edad aún no calculada
+
+                if (edadVal < rango.min || edadVal > rango.max) {
+                    mostrarMensaje(edadEl, tipoDocEl, `⚠ ${rango.nombre} no corresponde con la edad (${edadVal} años).`);
+                } else {
+                    limpiarMensaje(tipoDocEl);
+                    limpiarMensaje(edadEl);
                 }
+            }
 
-                const intervention = document.querySelector(interventionSel);
-                const sessionDate = document.querySelector(sessionDateSel);
-                const sessionNumber = document.querySelector(sessionNumberSel);
+            // La edad se llena sola (readonly) cuando se digita la fecha de nacimiento,
+            // así que se vigila por polling en vez de depender de un solo evento.
+            setInterval(() => {
+                const tipoDocEl = document.querySelector(tipoDocSelector);
+                const edadEl = document.querySelector(edadSelector);
+                if (!tipoDocEl || !edadEl) return;
 
-                if (!intervention || !sessionDate || !sessionNumber) return;
+                const tipoDocActual = tipoDocEl.value;
+                const edadActual = edadEl.value;
 
-                const number = value(sessionNumber).match(/\d+/);
-                if (!number) return;
-
-                if (parseInt(number[0], 10) !== 1) {
-                    window[FLAG] = true;
-                    clearInterval(timer);
-                    return;
+                if (tipoDocActual !== ultimoTipoDoc || edadActual !== ultimaEdad) {
+                    ultimoTipoDoc = tipoDocActual;
+                    ultimaEdad = edadActual;
+                    validar();
                 }
-
-                const interventionValue = value(intervention);
-                const sessionValue = value(sessionDate);
-
-                if (!interventionValue || !sessionValue) return;
-
-                window[FLAG] = true;
-                clearInterval(timer);
-
-                if (normalize(interventionValue) === normalize(sessionValue)) return;
-
-                alert(
-                    'La fecha de la sesión 1 (' +
-                    sessionValue +
-                    ') no coincide con la fecha de intervención (' +
-                    interventionValue +
-                    ').'
-                );
-            }, 200);
+            }, 400);
         }
 
         function start() {
             NAME_SELECTORS.forEach(selector => attachNameFilters(selector));
             attachDocFilter(DOC_SELECTOR, TIPO_DOC_SELECTOR);
-            validateSessionDateMatchesIntervention(
-                '#FechaIntervencion',
-                '#valorControl19263',
-                '#valorControl19264',
-                '#Ficha_fic'
-            );
+            attachDocAgeValidation(TIPO_DOC_SELECTOR, EDAD_SELECTOR);
         }
 
         if (document.readyState === 'complete') start();
