@@ -368,6 +368,7 @@ const bgSuccess='rgba(50, 200, 150, 0.2)', $=s=>document.querySelector(s), $$=s=
   function detectarYEjecutar(){ if(document.getElementById(ID_DOC_PERSONAS)) modoPersonas(); if(document.getElementById(ID_DOC_TAMIZAJES)) modoTamizajes(); }
   if(document.readyState==='complete') detectarYEjecutar(); else window.addEventListener('load',detectarYEjecutar);
 })(); // fin comprobadorDocumentos
+  
 // SCRIPT 4 — VALIDACIONES: NOMBRES, DOCUMENTO (6-11)
 (function addValidations() {
   const NAME_SELECTORS = ['#valorControl17508', '#valorControl17509'];
