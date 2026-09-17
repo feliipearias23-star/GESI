@@ -456,3 +456,4 @@ const bgSuccess='rgba(50, 200, 150, 0.2)', $=s=>document.querySelector(s), $$=s=
 
   if (document.readyState === 'complete') start(); else window.addEventListener('load', start);
 })(); // fin addValidations
+  })();
