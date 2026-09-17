@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SESIONES EDUCATIVO FULL NEW
 // @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
-// @version      1.3
+// @version      1.4
 // @description  Auto sesión, validador edad/doc, comprobador documentos, campos automáticos, validaciones nombres/doc/fechas
 // @author       You
 // @match        https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
@@ -368,14 +368,10 @@ const bgSuccess='rgba(50, 200, 150, 0.2)', $=s=>document.querySelector(s), $$=s=
   function detectarYEjecutar(){ if(document.getElementById(ID_DOC_PERSONAS)) modoPersonas(); if(document.getElementById(ID_DOC_TAMIZAJES)) modoTamizajes(); }
   if(document.readyState==='complete') detectarYEjecutar(); else window.addEventListener('load',detectarYEjecutar);
 })(); // fin comprobadorDocumentos
-
-// SCRIPT 4 — VALIDACIONES: NOMBRES, DOCUMENTO (6-11), FECHA INTERVENCIÓN
+// SCRIPT 4 — VALIDACIONES: NOMBRES, DOCUMENTO (6-11)
 (function addValidations() {
   const NAME_SELECTORS = ['#valorControl17508', '#valorControl17509'];
   const DOC_SELECTOR = '#valorControl17511';
-  const SESSION1_DATE_SELECTOR = '#valorControl17386';
-  const SESSION1_NUMBER_SELECTOR = '#valorControl17387';
-  const INTERVENTION_DATE_SELECTOR = '#FechaIntervencion';
   const nameSanitizeRegex = /[^\p{L}\s'-]/gu;
 
   function attachNameFilters(selector) {
@@ -450,93 +446,13 @@ const bgSuccess='rgba(50, 200, 150, 0.2)', $=s=>document.querySelector(s), $$=s=
     }
   }
 
-function validateSessionDateMatchesIntervention(
-  interventionSel,
-  sessionDateSel,
-  sessionNumberSel
-) {
-  const value = el => String(
-    el?.value ||
-    el?.getAttribute?.('value') ||
-    el?.textContent ||
-    ''
-  ).trim();
-
-  const normalize = date => {
-    date = String(date || '').trim().split('T')[0];
-    let m = date.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-    return m
-      ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
-      : date;
-  };
-
-  let esSesion1Nueva = false;
-  let noAplica = false; // true = ya sabemos que no es sesión 1 -> dejar de validar para siempre en esta carga
-
-  function attachListeners(intervention, sessionDate, sessionNumber) {
-    // Estado inicial: ¿el número de sesión llegó vacío (sesión 1 recién creada) o ya traía valor (ficha existente)?
-    esSesion1Nueva = value(sessionNumber) === '';
-    if (!esSesion1Nueva) {
-      noAplica = true;
-      return; // ficha existente reabierta -> nunca validamos en esta carga
-    }
-
-    function check() {
-      if (noAplica) return;
-
-      const num = value(sessionNumber).match(/^\d+$/); // valor final y completo, ya no en vivo
-      if (!num) return; // sigue vacío o incompleto
-
-      if (parseInt(num[0], 10) !== 1) {
-        noAplica = true; // es sesión 2, 13, 14... -> esta validación no aplica más
-        return;
-      }
-
-      const interventionValue = value(intervention);
-      const sessionValue = value(sessionDate);
-      if (!interventionValue || !sessionValue) return;
-
-      if (normalize(interventionValue) === normalize(sessionValue)) return;
-
-      alert(
-        'La fecha de la sesión 1 (' +
-        sessionValue +
-        ') no coincide con la fecha de intervención (' +
-        interventionValue +
-        ').'
-      );
-    }
-
-    sessionNumber.addEventListener('blur', check);
-    sessionDate.addEventListener('blur', check);
-    sessionDate.addEventListener('change', check);
-  }
-
-  const waitTimer = setInterval(() => {
-    const intervention = document.querySelector(interventionSel);
-    const sessionDate = document.querySelector(sessionDateSel);
-    const sessionNumber = document.querySelector(sessionNumberSel);
-
-    if (!intervention || !sessionDate || !sessionNumber) return;
-
-    clearInterval(waitTimer);
-    attachListeners(intervention, sessionDate, sessionNumber);
-  }, 200);
-}
   function start() {
     NAME_SELECTORS.forEach((selector) => {
       attachNameFilters(selector);
     });
 
     attachDocFilter(DOC_SELECTOR);
-
-    validateSessionDateMatchesIntervention(
-      INTERVENTION_DATE_SELECTOR,
-      SESSION1_DATE_SELECTOR,
-      SESSION1_NUMBER_SELECTOR
-    );
   }
 
   if (document.readyState === 'complete') start(); else window.addEventListener('load', start);
 })(); // fin addValidations
-})();
