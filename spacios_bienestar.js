@@ -619,34 +619,46 @@
       );
 
       campos.sexo.addEventListener(
-        'change',
-        () => {
-          aplicarCascadaSexo(campos);
-          aplicarEstadoCivilPorEdad(campos);
-          validarEdadDocumento(campos);
-        },
-        true
-      );
+  'input',
+  () => {
+    // Solo actualiza Género, Orientación e Identidad de género.
+    aplicarCascadaSexo(campos);
+  },
+  true
+);
+
+campos.sexo.addEventListener(
+  'change',
+  () => {
+    // Al cambiar Sexo no se ejecuta el validador de edad/documento.
+    aplicarCascadaSexo(campos);
+    aplicarEstadoCivilPorEdad(campos);
+  },
+  true
+);
       if (campos.edad) {
-        let ultimaEdad = campos.edad.value;
+  const revisarEdadYDocumento = () => {
+    aplicarCascadaSexo(campos);
+    aplicarEstadoCivilPorEdad(campos);
+    validarEdadDocumento(campos);
+  };
 
-        campos.edad.addEventListener(
-          'input',
-          () => {
-            if (
-              campos.edad.value === ultimaEdad
-            ) {
-              return;
-            }
+  let ultimaEdad = campos.edad.value;
 
-            ultimaEdad = campos.edad.value;
+  const revisarSiCambio = () => {
+    if (campos.edad.value !== ultimaEdad) {
+      ultimaEdad = campos.edad.value;
+      revisarEdadYDocumento();
+    }
+  };
 
-            aplicarCascadaSexo(campos);
-            aplicarEstadoCivilPorEdad(campos);
-            validarEdadDocumento(campos);
-          }
-        );
-      }
+  campos.edad.addEventListener('input', revisarSiCambio);
+  campos.edad.addEventListener('change', revisarEdadYDocumento);
+  campos.edad.addEventListener('blur', revisarEdadYDocumento);
+
+  // Fallback por si GESI actualiza el valor sin disparar bien el evento.
+  setTimeout(() => revisarEdadYDocumento(), 50);
+}
       ejecutarTodo();
 
       return true;
