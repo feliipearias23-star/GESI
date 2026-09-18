@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GESI - Base 65 - Tamizaje Escala Abreviada de Desarrollo
 // @namespace    http://tampermonkey.net/
-// @version      2.2
+// @version      2.4
 // @description  Automatiza campos de Caracterización y Evaluación de la ficha Base 65 en GESI
 // @author       Cristhian
 // @match        https://gesiapps.saludcapital.gov.co/*
@@ -11,13 +11,12 @@
 (function () {
     'use strict';
 
-    // =========================================================
-    // Configuración general
-    // =========================================================
     const FICHA_ID = 'Ficha_fic';
     const ENTORNO_ID = 'valorControl21654';
     const ENTORNO_TEXTO_DEFECTO = 'Institucional';
     const LOCALIDAD_ID = 'valorControl21656';
+    const NOMBRE_INSTITUCION_ID = 'valorControl21655';
+    const CLAVE_INSTITUCION_PREFIJO = 'gesi_base65_institucion_';
 
     // Fecha de evaluación: campo completo DD/MM/AAAA
     const FECHA_EVALUACION_ID = 'valorControl21652';
@@ -26,6 +25,7 @@
         mesesId: 'valorControl21687',
         diasId: 'valorControl21688'
     };
+
     const MOMENTOS = {
         caracterizacion: {
             fechaEvaluacion: {
@@ -126,11 +126,13 @@
 
     function leerValorNumerico(id) {
         const elemento = obtenerElemento(id);
+
         if (!elemento || elemento.value === '' || elemento.value === null) {
             return null;
         }
 
         const numero = parseInt(elemento.value, 10);
+
         return Number.isNaN(numero) ? null : numero;
     }
 
@@ -143,6 +145,7 @@
 
     function escribirValor(id, valor) {
         const elemento = obtenerElemento(id);
+
         if (!elemento) return;
 
         marcarVerde(elemento);
@@ -154,27 +157,38 @@
         }
 
         elemento.value = valorTexto;
-        elemento.dispatchEvent(new Event('input', { bubbles: true }));
-        elemento.dispatchEvent(new Event('change', { bubbles: true }));
+
+        elemento.dispatchEvent(new Event('input', {
+            bubbles: true
+        }));
+
+        elemento.dispatchEvent(new Event('change', {
+            bubbles: true
+        }));
     }
 
     function actualizarFechaEvaluacionSeparada() {
         const campoFecha = obtenerElemento(FECHA_EVALUACION_ID);
+
         if (!campoFecha) return;
 
         const fechaTexto = campoFecha.value.trim();
+
         if (!fechaTexto) return;
 
         const partes = fechaTexto.split('/');
+
         if (partes.length !== 3) return;
 
         const dia = partes[0].trim().padStart(2, '0');
         const mes = partes[1].trim().padStart(2, '0');
         const anio = partes[2].trim();
 
-        if (!/^\d{2}$/.test(dia) ||
+        if (
+            !/^\d{2}$/.test(dia) ||
             !/^\d{2}$/.test(mes) ||
-            !/^\d{4}$/.test(anio)) {
+            !/^\d{4}$/.test(anio)
+        ) {
             return;
         }
 
@@ -182,7 +196,11 @@
         const mesNumero = Number(mes);
         const anioNumero = Number(anio);
 
-        const fechaValida = new Date(anioNumero, mesNumero - 1, diaNumero);
+        const fechaValida = new Date(
+            anioNumero,
+            mesNumero - 1,
+            diaNumero
+        );
 
         if (
             fechaValida.getFullYear() !== anioNumero ||
@@ -200,29 +218,44 @@
             return;
         }
 
-        campoAnio.value = String(anioNumero);
-        campoMes.value = mes;
-        campoDia.value = dia;
+        escribirValor(campoAnio.id, anioNumero);
+        escribirValor(campoMes.id, mes);
+        escribirValor(campoDia.id, dia);
+    }
 
-        campoAnio.dispatchEvent(new Event('input', { bubbles: true }));
-        campoAnio.dispatchEvent(new Event('change', { bubbles: true }));
+    function copiarFechaNacimientoCaracterizacionAEvaluacion() {
+        const campoFechaEvaluacion = obtenerElemento(FECHA_EVALUACION_ID);
 
-        campoMes.dispatchEvent(new Event('input', { bubbles: true }));
-        campoMes.dispatchEvent(new Event('change', { bubbles: true }));
+        if (!campoFechaEvaluacion || !campoFechaEvaluacion.value.trim()) {
+            return;
+        }
 
-        campoDia.dispatchEvent(new Event('input', { bubbles: true }));
-        campoDia.dispatchEvent(new Event('change', { bubbles: true }));
+        const fechaNacimientoCaracterizacion = MOMENTOS.caracterizacion.fechaNacimiento;
+        const fechaNacimientoEvaluacion = MOMENTOS.evaluacion.fechaNacimiento;
 
-        marcarVerde(campoAnio);
-        marcarVerde(campoMes);
-        marcarVerde(campoDia);
+        const anio = leerValorNumerico(fechaNacimientoCaracterizacion.aniosId);
+        const mes = leerValorNumerico(fechaNacimientoCaracterizacion.mesesId);
+        const dia = leerValorNumerico(fechaNacimientoCaracterizacion.diasId);
+
+        if (anio === null || mes === null || dia === null) {
+            return;
+        }
+
+        escribirValor(fechaNacimientoEvaluacion.aniosId, anio);
+        escribirValor(fechaNacimientoEvaluacion.mesesId, mes);
+        escribirValor(fechaNacimientoEvaluacion.diasId, dia);
     }
 
     function aplicarEntornoPorDefecto() {
         const select = obtenerElemento(ENTORNO_ID);
-        if (!select || select.tagName !== 'SELECT') return;
 
-        if (select.value && select.value !== '') return;
+        if (!select || select.tagName !== 'SELECT') {
+            return;
+        }
+
+        if (select.value && select.value !== '') {
+            return;
+        }
 
         const opcion = Array.from(select.options).find(
             opt => opt.textContent.trim().toLowerCase() === ENTORNO_TEXTO_DEFECTO.toLowerCase()
@@ -235,9 +268,6 @@
         }
     }
 
-    // =========================================================
-    // Localidad automática desde Número de Ficha
-    // =========================================================
     function aplicarLocalidadDesdeFicha() {
         const inputFicha = obtenerElemento(FICHA_ID);
         const selectLocalidad = obtenerElemento(LOCALIDAD_ID);
@@ -258,6 +288,52 @@
             selectLocalidad.value = opcion.value;
             selectLocalidad.dispatchEvent(new Event('change', { bubbles: true }));
             marcarVerde(selectLocalidad);
+        }
+    }
+
+    function obtenerClaveInstitucionPorFicha() {
+        const inputFicha = obtenerElemento(FICHA_ID);
+
+        if (!inputFicha || !inputFicha.value.trim()) {
+            return null;
+        }
+
+        const numeroFicha = inputFicha.value.trim();
+
+        return `${CLAVE_INSTITUCION_PREFIJO}${numeroFicha}`;
+    }
+
+    function sincronizarNombreInstitucion() {
+        const campoInstitucion = obtenerElemento(NOMBRE_INSTITUCION_ID);
+        const claveInstitucion = obtenerClaveInstitucionPorFicha();
+
+        if (!campoInstitucion || !claveInstitucion) {
+            return;
+        }
+
+        let nombreGuardado = '';
+
+        try {
+            nombreGuardado = localStorage.getItem(claveInstitucion) || '';
+        } catch (error) {
+            console.warn('No fue posible consultar el nombre de la institución:', error);
+        }
+
+        const nombreActual = campoInstitucion.value.trim();
+
+        if (nombreActual) {
+            try {
+                localStorage.setItem(claveInstitucion, nombreActual);
+            } catch (error) {
+                console.warn('No fue posible guardar el nombre de la institución:', error);
+            }
+
+            marcarVerde(campoInstitucion);
+            return;
+        }
+
+        if (nombreGuardado) {
+            escribirValor(NOMBRE_INSTITUCION_ID, nombreGuardado);
         }
     }
 
@@ -341,9 +417,13 @@
 
         aplicarEntornoPorDefecto();
         aplicarLocalidadDesdeFicha();
+        sincronizarNombreInstitucion();
 
         // Fecha de evaluación: 21652 -> 21686 / 21687 / 21688
         actualizarFechaEvaluacionSeparada();
+
+        // Copiar fecha de nacimiento de Caracterización a Evaluación
+        copiarFechaNacimientoCaracterizacionAEvaluacion();
 
         Object.values(MOMENTOS).forEach(configuracionMomento => {
             actualizarEdadMomento(configuracionMomento);
@@ -386,6 +466,12 @@
             return;
         }
 
+        if (id === FICHA_ID || id === NOMBRE_INSTITUCION_ID) {
+            sincronizarNombreInstitucion();
+            programarProcesamiento();
+            return;
+        }
+
         if (IDS_EDAD.includes(id) || IDS_PUNTUACION.includes(id)) {
             programarProcesamiento();
         }
@@ -396,6 +482,12 @@
 
         if (id === FECHA_EVALUACION_ID) {
             actualizarFechaEvaluacionSeparada();
+            programarProcesamiento();
+            return;
+        }
+
+        if (id === FICHA_ID || id === NOMBRE_INSTITUCION_ID) {
+            sincronizarNombreInstitucion();
             programarProcesamiento();
             return;
         }
@@ -420,7 +512,6 @@
         subtree: true
     });
 
-    // Procesamiento inicial
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', programarProcesamiento);
     } else {
