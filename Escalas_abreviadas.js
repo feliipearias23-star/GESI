@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GESI - Base 65 - Tamizaje Escala Abreviada de Desarrollo
 // @namespace    http://tampermonkey.net/
-// @version      1.2
-// @description  Automatiza campos de la ficha Tamizaje - Escala Abreviada de Desarrollo (Base 65) en GESI
+// @version      2.2
+// @description  Automatiza campos de Caracterización y Evaluación de la ficha Base 65 en GESI
 // @author       Cristhian
 // @match        https://gesiapps.saludcapital.gov.co/*
 // @grant        none
@@ -19,50 +19,209 @@
     const ENTORNO_TEXTO_DEFECTO = 'Institucional';
     const LOCALIDAD_ID = 'valorControl21656';
 
-    // Cálculo edad caracterización
-    const CARAC_ANIOS_ID = 'valorControl21673';
-    const CARAC_MESES_ID = 'valorControl21674';
-    const CARAC_DIAS_ID  = 'valorControl21675';
+    // Fecha de evaluación: campo completo DD/MM/AAAA
+    const FECHA_EVALUACION_ID = 'valorControl21652';
+    const FECHA_EVALUACION_SEPARADA = {
+        aniosId: 'valorControl21686',
+        mesesId: 'valorControl21687',
+        diasId: 'valorControl21688'
+    };
+    const MOMENTOS = {
+        caracterizacion: {
+            fechaEvaluacion: {
+                aniosId: 'valorControl21673',
+                mesesId: 'valorControl21674',
+                diasId: 'valorControl21675'
+            },
+            fechaNacimiento: {
+                aniosId: 'valorControl21676',
+                mesesId: 'valorControl21677',
+                diasId: 'valorControl21678'
+            },
+            edad: {
+                aniosId: 'valorControl21679',
+                mesesId: 'valorControl21680',
+                diasId: 'valorControl21681'
+            },
+            edadMesesReplicaIds: [
+                'valorControl21700',
+                'valorControl21723',
+                'valorControl21741',
+                'valorControl21759'
+            ],
+            puntuacionPD: [
+                {
+                    acumuladoId: 'valorControl21703',
+                    itemsId: 'valorControl21706',
+                    totalId: 'valorControl21709'
+                },
+                {
+                    acumuladoId: 'valorControl21724',
+                    itemsId: 'valorControl21725',
+                    totalId: 'valorControl21726'
+                },
+                {
+                    acumuladoId: 'valorControl21742',
+                    itemsId: 'valorControl21743',
+                    totalId: 'valorControl21744'
+                },
+                {
+                    acumuladoId: 'valorControl21760',
+                    itemsId: 'valorControl21761',
+                    totalId: 'valorControl21762'
+                }
+            ]
+        },
 
-    const NAC_ANIOS_ID = 'valorControl21676';
-    const NAC_MESES_ID = 'valorControl21677';
-    const NAC_DIAS_ID  = 'valorControl21678';
+        evaluacion: {
+            fechaEvaluacion: {
+                aniosId: 'valorControl21686',
+                mesesId: 'valorControl21687',
+                diasId: 'valorControl21688'
+            },
+            fechaNacimiento: {
+                aniosId: 'valorControl21689',
+                mesesId: 'valorControl21690',
+                diasId: 'valorControl21691'
+            },
+            edad: {
+                aniosId: 'valorControl21692',
+                mesesId: 'valorControl21693',
+                diasId: 'valorControl21694'
+            },
+            edadMesesReplicaIds: [
+                'valorControl21701',
+                'valorControl21729',
+                'valorControl21747',
+                'valorControl21765'
+            ],
+            puntuacionPD: [
+                {
+                    acumuladoId: 'valorControl21704',
+                    itemsId: 'valorControl21707',
+                    totalId: 'valorControl21710'
+                },
+                {
+                    acumuladoId: 'valorControl21730',
+                    itemsId: 'valorControl21731',
+                    totalId: 'valorControl21732'
+                },
+                {
+                    acumuladoId: 'valorControl21748',
+                    itemsId: 'valorControl21749',
+                    totalId: 'valorControl21750'
+                },
+                {
+                    acumuladoId: 'valorControl21766',
+                    itemsId: 'valorControl21767',
+                    totalId: 'valorControl21768'
+                }
+            ]
+        }
+    };
 
-    const EDAD_ANIOS_ID = 'valorControl21679';
-    const EDAD_MESES_ID = 'valorControl21680';
-    const EDAD_DIAS_ID  = 'valorControl21681';
+    function obtenerElemento(id) {
+        return document.getElementById(id);
+    }
 
-    // Campos adicionales que también deben quedar con la edad en MESES
-    const EDAD_MESES_REPLICA_IDS = [
-        'valorControl21700',
-        'valorControl21723',
-        'valorControl21741',
-        'valorControl21759'
-    ];
+    function leerValorNumerico(id) {
+        const elemento = obtenerElemento(id);
+        if (!elemento || elemento.value === '' || elemento.value === null) {
+            return null;
+        }
 
-    const CAMPOS_FECHA_EDAD = [
-        CARAC_ANIOS_ID, CARAC_MESES_ID, CARAC_DIAS_ID,
-        NAC_ANIOS_ID, NAC_MESES_ID, NAC_DIAS_ID
-    ];
+        const numero = parseInt(elemento.value, 10);
+        return Number.isNaN(numero) ? null : numero;
+    }
 
-    // Total puntuación directa PD = Total acumulado al inicio + Número de items correctos
-    // Un grupo por cada apartado (A - Motricidad gruesa, B - Motricidad fino adaptativa,
-    // C - Audición lenguaje, D - Personal social)
-    const GRUPOS_PUNTUACION_PD = [
-        { acumuladoId: 'valorControl21703', itemsId: 'valorControl21706', totalId: 'valorControl21709' }, // A
-        { acumuladoId: 'valorControl21724', itemsId: 'valorControl21725', totalId: 'valorControl21726' }, // B
-        { acumuladoId: 'valorControl21742', itemsId: 'valorControl21743', totalId: 'valorControl21744' }, // C
-        { acumuladoId: 'valorControl21760', itemsId: 'valorControl21761', totalId: 'valorControl21762' }  // D
-    ];
-    const CAMPOS_PUNTUACION_PD = GRUPOS_PUNTUACION_PD.flatMap(g => [g.acumuladoId, g.itemsId]);
+    function marcarVerde(elemento) {
+        if (!elemento) return;
 
-    // NOTA: el bloque de semaforización automática según "Total puntuación
-    // típica PT" fue eliminado a petición del usuario, ya que los rangos
-    // varían según la edad y el llenado automático no aplica.
+        elemento.style.backgroundColor = '#d4edda';
+        elemento.style.border = '1px solid #28a745';
+    }
+
+    function escribirValor(id, valor) {
+        const elemento = obtenerElemento(id);
+        if (!elemento) return;
+
+        marcarVerde(elemento);
+
+        const valorTexto = String(valor);
+
+        if (elemento.value === valorTexto) {
+            return;
+        }
+
+        elemento.value = valorTexto;
+        elemento.dispatchEvent(new Event('input', { bubbles: true }));
+        elemento.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    function actualizarFechaEvaluacionSeparada() {
+        const campoFecha = obtenerElemento(FECHA_EVALUACION_ID);
+        if (!campoFecha) return;
+
+        const fechaTexto = campoFecha.value.trim();
+        if (!fechaTexto) return;
+
+        const partes = fechaTexto.split('/');
+        if (partes.length !== 3) return;
+
+        const dia = partes[0].trim().padStart(2, '0');
+        const mes = partes[1].trim().padStart(2, '0');
+        const anio = partes[2].trim();
+
+        if (!/^\d{2}$/.test(dia) ||
+            !/^\d{2}$/.test(mes) ||
+            !/^\d{4}$/.test(anio)) {
+            return;
+        }
+
+        const diaNumero = Number(dia);
+        const mesNumero = Number(mes);
+        const anioNumero = Number(anio);
+
+        const fechaValida = new Date(anioNumero, mesNumero - 1, diaNumero);
+
+        if (
+            fechaValida.getFullYear() !== anioNumero ||
+            fechaValida.getMonth() !== mesNumero - 1 ||
+            fechaValida.getDate() !== diaNumero
+        ) {
+            return;
+        }
+
+        const campoAnio = obtenerElemento(FECHA_EVALUACION_SEPARADA.aniosId);
+        const campoMes = obtenerElemento(FECHA_EVALUACION_SEPARADA.mesesId);
+        const campoDia = obtenerElemento(FECHA_EVALUACION_SEPARADA.diasId);
+
+        if (!campoAnio || !campoMes || !campoDia) {
+            return;
+        }
+
+        campoAnio.value = String(anioNumero);
+        campoMes.value = mes;
+        campoDia.value = dia;
+
+        campoAnio.dispatchEvent(new Event('input', { bubbles: true }));
+        campoAnio.dispatchEvent(new Event('change', { bubbles: true }));
+
+        campoMes.dispatchEvent(new Event('input', { bubbles: true }));
+        campoMes.dispatchEvent(new Event('change', { bubbles: true }));
+
+        campoDia.dispatchEvent(new Event('input', { bubbles: true }));
+        campoDia.dispatchEvent(new Event('change', { bubbles: true }));
+
+        marcarVerde(campoAnio);
+        marcarVerde(campoMes);
+        marcarVerde(campoDia);
+    }
 
     function aplicarEntornoPorDefecto() {
-        const select = document.getElementById(ENTORNO_ID);
+        const select = obtenerElemento(ENTORNO_ID);
         if (!select || select.tagName !== 'SELECT') return;
+
         if (select.value && select.value !== '') return;
 
         const opcion = Array.from(select.options).find(
@@ -76,9 +235,12 @@
         }
     }
 
+    // =========================================================
+    // Localidad automática desde Número de Ficha
+    // =========================================================
     function aplicarLocalidadDesdeFicha() {
-        const inputFicha = document.getElementById(FICHA_ID);
-        const selectLocalidad = document.getElementById(LOCALIDAD_ID);
+        const inputFicha = obtenerElemento(FICHA_ID);
+        const selectLocalidad = obtenerElemento(LOCALIDAD_ID);
 
         if (!inputFicha || !selectLocalidad) return;
         if (selectLocalidad.value && selectLocalidad.value !== '') return;
@@ -99,11 +261,30 @@
         }
     }
 
-    function leerValorNumerico(id) {
-        const el = document.getElementById(id);
-        if (!el || el.value === '' || el.value === null) return null;
-        const num = parseInt(el.value, 10);
-        return Number.isNaN(num) ? null : num;
+    function crearFechaDesdeCampos(configuracionFecha) {
+        const anios = leerValorNumerico(configuracionFecha.aniosId);
+        const meses = leerValorNumerico(configuracionFecha.mesesId);
+        const dias = leerValorNumerico(configuracionFecha.diasId);
+
+        if ([anios, meses, dias].some(v => v === null)) {
+            return null;
+        }
+
+        if (anios < 0 || meses < 1 || meses > 12 || dias < 1 || dias > 31) {
+            return null;
+        }
+
+        const fecha = new Date(anios, meses - 1, dias);
+
+        if (
+            fecha.getFullYear() !== anios ||
+            fecha.getMonth() !== meses - 1 ||
+            fecha.getDate() !== dias
+        ) {
+            return null;
+        }
+
+        return fecha;
     }
 
     function calcularDiferenciaFechas(fechaMayor, fechaMenor) {
@@ -113,7 +294,6 @@
 
         if (dias < 0) {
             meses -= 1;
-            // Último día del mes anterior al mes de la fecha mayor
             const ultimoDiaMesAnterior = new Date(fechaMayor.getFullYear(), fechaMayor.getMonth(), 0);
             dias += ultimoDiaMesAnterior.getDate();
         }
@@ -126,51 +306,21 @@
         return { anios, meses, dias };
     }
 
-    function marcarVerde(el) {
-        if (!el) return;
-        el.style.backgroundColor = '#d4edda';
-        el.style.border = '1px solid #28a745';
-    }
+    function actualizarEdadMomento(configuracionMomento) {
+        const fechaEvaluacion = crearFechaDesdeCampos(configuracionMomento.fechaEvaluacion);
+        const fechaNacimiento = crearFechaDesdeCampos(configuracionMomento.fechaNacimiento);
 
-    function escribirValor(id, valor) {
-        const el = document.getElementById(id);
-        if (!el) return;
-        marcarVerde(el);
-        if (el.value === String(valor)) return; // evita disparar eventos innecesarios
-        el.value = valor;
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-    }
+        if (!fechaEvaluacion || !fechaNacimiento) return;
+        if (fechaNacimiento > fechaEvaluacion) return;
 
-    function actualizarEdadNino() {
-        const caracAnios = leerValorNumerico(CARAC_ANIOS_ID);
-        const caracMeses = leerValorNumerico(CARAC_MESES_ID);
-        const caracDias  = leerValorNumerico(CARAC_DIAS_ID);
+        const edad = calcularDiferenciaFechas(fechaEvaluacion, fechaNacimiento);
 
-        const nacAnios = leerValorNumerico(NAC_ANIOS_ID);
-        const nacMeses = leerValorNumerico(NAC_MESES_ID);
-        const nacDias  = leerValorNumerico(NAC_DIAS_ID);
+        escribirValor(configuracionMomento.edad.aniosId, edad.anios);
+        escribirValor(configuracionMomento.edad.mesesId, edad.meses);
+        escribirValor(configuracionMomento.edad.diasId, edad.dias);
 
-        if ([caracAnios, caracMeses, caracDias, nacAnios, nacMeses, nacDias].some(v => v === null)) {
-            return; // faltan datos por diligenciar
-        }
-
-        const fechaCarac = new Date(caracAnios, caracMeses - 1, caracDias);
-        const fechaNac = new Date(nacAnios, nacMeses - 1, nacDias);
-
-        // Validación básica: fecha de nacimiento no debe ser posterior a la de caracterización
-        if (fechaNac > fechaCarac) return;
-
-        const edad = calcularDiferenciaFechas(fechaCarac, fechaNac);
-
-        escribirValor(EDAD_ANIOS_ID, edad.anios);
-        escribirValor(EDAD_MESES_ID, edad.meses);
-        escribirValor(EDAD_DIAS_ID, edad.dias);
-
-        // Total de meses completos transcurridos desde el nacimiento
-        // (no solo el residuo de meses del desglose Años/Meses/Días)
         const totalMeses = (edad.anios * 12) + edad.meses;
-        EDAD_MESES_REPLICA_IDS.forEach(id => escribirValor(id, totalMeses));
+        configuracionMomento.edadMesesReplicaIds.forEach(id => escribirValor(id, totalMeses));
     }
 
     function actualizarPuntuacionPD(grupo) {
@@ -182,38 +332,98 @@
         escribirValor(grupo.totalId, acumulado + items);
     }
 
-    function actualizarTodasLasPuntuacionesPD() {
-        GRUPOS_PUNTUACION_PD.forEach(actualizarPuntuacionPD);
+    function actualizarPuntuacionesMomento(configuracionMomento) {
+        configuracionMomento.puntuacionPD.forEach(actualizarPuntuacionPD);
     }
-
-    document.addEventListener('input', event => {
-        if (CAMPOS_FECHA_EDAD.includes(event.target.id)) {
-            actualizarEdadNino();
-        }
-        if (CAMPOS_PUNTUACION_PD.includes(event.target.id)) {
-            actualizarTodasLasPuntuacionesPD();
-        }
-    }, true);
-
-    document.addEventListener('change', event => {
-        if (CAMPOS_FECHA_EDAD.includes(event.target.id)) {
-            actualizarEdadNino();
-        }
-        if (CAMPOS_PUNTUACION_PD.includes(event.target.id)) {
-            actualizarTodasLasPuntuacionesPD();
-        }
-    }, true);
 
     function procesarFicha() {
+        if (!obtenerElemento(FICHA_ID)) return;
+
         aplicarEntornoPorDefecto();
         aplicarLocalidadDesdeFicha();
-        actualizarEdadNino(); // por si los campos ya vienen diligenciados al cargar
-        actualizarTodasLasPuntuacionesPD(); // ídem para los 4 apartados de puntuación PD
+
+        // Fecha de evaluación: 21652 -> 21686 / 21687 / 21688
+        actualizarFechaEvaluacionSeparada();
+
+        Object.values(MOMENTOS).forEach(configuracionMomento => {
+            actualizarEdadMomento(configuracionMomento);
+            actualizarPuntuacionesMomento(configuracionMomento);
+        });
     }
 
-    setInterval(() => {
-        const fichaExiste = document.getElementById(FICHA_ID);
-        if (!fichaExiste) return; // aún no ha cargado esta sección del formulario
-        procesarFicha();
-    }, 500);
+    const IDS_EDAD = Object.values(MOMENTOS).flatMap(momentos => [
+        momentos.fechaEvaluacion.aniosId,
+        momentos.fechaEvaluacion.mesesId,
+        momentos.fechaEvaluacion.diasId,
+        momentos.fechaNacimiento.aniosId,
+        momentos.fechaNacimiento.mesesId,
+        momentos.fechaNacimiento.diasId
+    ]);
+
+    const IDS_PUNTUACION = Object.values(MOMENTOS).flatMap(momentos =>
+        momentos.puntuacionPD.flatMap(grupo => [grupo.acumuladoId, grupo.itemsId])
+    );
+
+    let procesamientoPendiente = false;
+
+    function programarProcesamiento() {
+        if (procesamientoPendiente) return;
+
+        procesamientoPendiente = true;
+
+        requestAnimationFrame(() => {
+            procesamientoPendiente = false;
+            procesarFicha();
+        });
+    }
+
+    document.addEventListener('input', evento => {
+        const id = evento.target && evento.target.id;
+
+        if (id === FECHA_EVALUACION_ID) {
+            actualizarFechaEvaluacionSeparada();
+            programarProcesamiento();
+            return;
+        }
+
+        if (IDS_EDAD.includes(id) || IDS_PUNTUACION.includes(id)) {
+            programarProcesamiento();
+        }
+    }, true);
+
+    document.addEventListener('change', evento => {
+        const id = evento.target && evento.target.id;
+
+        if (id === FECHA_EVALUACION_ID) {
+            actualizarFechaEvaluacionSeparada();
+            programarProcesamiento();
+            return;
+        }
+
+        if (IDS_EDAD.includes(id) || IDS_PUNTUACION.includes(id)) {
+            programarProcesamiento();
+        }
+    }, true);
+
+    const observador = new MutationObserver(mutations => {
+        const huboCambiosRelevantes = mutations.some(mutation =>
+            mutation.type === 'childList' && mutation.addedNodes && mutation.addedNodes.length > 0
+        );
+
+        if (huboCambiosRelevantes) {
+            programarProcesamiento();
+        }
+    });
+
+    observador.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+
+    // Procesamiento inicial
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', programarProcesamiento);
+    } else {
+        programarProcesamiento();
+    }
 })();
