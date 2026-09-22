@@ -50,22 +50,40 @@
       return h;
     }
 
+    // ================= MENSAJES DE ERROR (SIN ROBAR EL FOCO) =================
+    // Antes se usaba reportValidity(), que en Chrome/Edge le devuelve el foco
+    // al campo inválido. Combinado con el evento blur y con revalidarTodas(),
+    // el cursor quedaba "atrapado" o saltaba a otro campo y no se podía
+    // corregir. Ahora el error se muestra como texto debajo del campo y
+    // nunca se mueve el foco.
+    const CLASE_MSG = 'msg-error-fecha';
+
+    function getMensajeEl(input) {
+      const sig = input.nextElementSibling;
+      return (sig && sig.classList.contains(CLASE_MSG)) ? sig : null;
+    }
+
     function marcarError(input, mensaje) {
       input.classList.add('is-invalid');
-      input.setCustomValidity(mensaje);
-      input.reportValidity();
+      input.setCustomValidity(mensaje); // sigue bloqueando el envío del formulario
+      let msg = getMensajeEl(input);
+      if (!msg) {
+        msg = document.createElement('div');
+        msg.className = CLASE_MSG;
+        msg.style.cssText = 'color:#dc3545;font-size:12px;margin-top:2px;';
+        input.insertAdjacentElement('afterend', msg);
+      }
+      msg.textContent = mensaje;
     }
 
     function limpiarError(input) {
       input.classList.remove('is-invalid');
       input.setCustomValidity('');
+      const msg = getMensajeEl(input);
+      if (msg) msg.remove();
     }
 
     // ================= CACHE: CAMPOS DE FECHA CLASIFICADOS =================
-    // Un solo recorrido del DOM arma tanto la lista ordenada de "Fecha de
-    // sesión" (para la cadena anterior/siguiente) como el mapa de qué tipo
-    // es cada input (sesión, nacimiento, u otro). Así cada tipo recibe
-    // solo las reglas que le corresponden.
     const SELECTOR_LABEL = 'td[title^="Control:"]';
     const SELECTOR_INPUT = 'input[placeholder="DD/MM/AAAA"]';
 
@@ -124,13 +142,10 @@
       const tipo = getTipoCampo(input);
       const hoy = hoySinHora();
 
-      // Regla universal: ninguna fecha (sesión o nacimiento) puede ser futura.
       if (valor > hoy) {
         return marcarError(input, 'La fecha no puede ser mayor a la fecha actual.');
       }
 
-      // Fecha de nacimiento (u otros campos no clasificados) no llevan más
-      // reglas: pueden ser perfectamente anteriores a FechaIntervencion.
       if (tipo !== 'sesion') return;
 
       const fechaIntervencion = getValorFecha(document.getElementById('FechaIntervencion'));
@@ -159,30 +174,41 @@
 
     function revalidarTodas() {
       getCamposFechaSesion().forEach(validarCampoFecha);
-      const nacimiento = Array.from(cacheTipos.entries())
+      Array.from(cacheTipos.entries())
         .filter(([, tipo]) => tipo === 'nacimiento')
-        .map(([input]) => input);
-      nacimiento.forEach(validarCampoFecha);
+        .forEach(([input]) => validarCampoFecha(input));
     }
 
     // ================= EVENTOS (DELEGACIÓN) =================
     document.addEventListener('blur', e => {
-      if (e.target.matches(SELECTOR_INPUT)) validarCampoFecha(e.target);
+      if (e.target.matches && e.target.matches(SELECTOR_INPUT)) validarCampoFecha(e.target);
     }, true);
 
     document.addEventListener('input', e => {
-      if (!e.target.matches(SELECTOR_INPUT)) return;
+      if (!e.target.matches || !e.target.matches(SELECTOR_INPUT)) return;
       e.target.value.length === 10 ? validarCampoFecha(e.target) : limpiarError(e.target);
     });
 
     document.addEventListener('change', e => {
-      if (e.target.id === 'FechaIntervencion' || e.target.matches(SELECTOR_INPUT)) {
+      if (e.target.id === 'FechaIntervencion' || (e.target.matches && e.target.matches(SELECTOR_INPUT))) {
         revalidarTodas();
       }
     });
 
     // ================= AUTO-INVALIDACIÓN DE CACHE =================
-    const observer = new MutationObserver(invalidarCache);
+    // Se ignoran los cambios causados por nuestros propios mensajes de error,
+    // para no reconstruir el cache cada vez que aparece o desaparece uno.
+    function esNodoPropio(n) {
+      return n.nodeType === 1 && n.classList.contains(CLASE_MSG);
+    }
+
+    const observer = new MutationObserver(mutaciones => {
+      const relevante = mutaciones.some(m =>
+        Array.from(m.addedNodes).some(n => !esNodoPropio(n)) ||
+        Array.from(m.removedNodes).some(n => !esNodoPropio(n))
+      );
+      if (relevante) invalidarCache();
+    });
     observer.observe(document.body, { childList: true, subtree: true });
   });
 })();
