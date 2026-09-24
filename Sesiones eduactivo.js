@@ -18,8 +18,7 @@
     // CONFIGURACIÓN COMPARTIDA
     // ════════════════════════════════════════════════════════════════════
     const bgSuccess = "rgba(50, 200, 150, 0.2)";
-    if (window.__autocompletarCedula) return;
-window.__autocompletarCedula = true;
+    
 
     // IDs de los campos de la base Educativo (una sola tabla para todos los bloques)
     const IDS = {
@@ -684,6 +683,8 @@ window.__autocompletarCedula = true;
     //  - Si no se logra el sexo, aparece un aviso debajo del campo Sexo.
     // ════════════════════════════════════════════════════════════════════
     (function autocompletarPorCedula() {
+        if (window.__autocompletarCedula) return;
+            window.__autocompletarCedula = true;
 
         const BASE_COMPROBADOR = 'https://appb.saludcapital.gov.co/comprobadordederechos/';
         const BASE_SUPERSALUD = 'https://pqrdsuperargo.supersalud.gov.co/api/api/adres/';
