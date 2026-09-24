@@ -682,9 +682,7 @@
     //  - Si no se logra el sexo, aparece un aviso debajo del campo Sexo.
     // ════════════════════════════════════════════════════════════════════
     (function autocompletarPorCedula() {
-        if (window.__autocompletarCedula) return;
-            window.__autocompletarCedula = true;
-
+    
         const BASE_COMPROBADOR = 'https://appb.saludcapital.gov.co/comprobadordederechos/';
         const BASE_SUPERSALUD = 'https://pqrdsuperargo.supersalud.gov.co/api/api/adres/';
 
