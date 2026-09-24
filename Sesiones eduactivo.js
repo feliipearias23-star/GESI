@@ -18,7 +18,6 @@
     // CONFIGURACIÓN COMPARTIDA
     // ════════════════════════════════════════════════════════════════════
     const bgSuccess = "rgba(50, 200, 150, 0.2)";
-    
 
     // IDs de los campos de la base Educativo (una sola tabla para todos los bloques)
     const IDS = {
@@ -763,6 +762,7 @@
         return r; // trae .status y .responseText, igual que GM_xmlhttpRequest
     });
 }
+
         // Une partes de un nombre ignorando vacíos: ['A', '', 'B'] -> 'A B'
         function unir(...partes) {
             return partes.map((p) => String(p ?? '').trim()).filter(Boolean).join(' ');
