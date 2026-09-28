@@ -122,7 +122,7 @@
             console.error(error);
         }
 
-    // ===================== BLOQUE 2: Auto Sesión Asistencia (v8.4) =====================
+    // ===================== BLOQUE 2: Auto Sesión Asistencia =====================
     (function autoSesion() {
         'use strict';
 
@@ -132,6 +132,7 @@
             { id: 'valorControl19305' },
             { id: 'valorControl19325' },
         ];
+        const IDS_SESION = ['19264', '19285', '19305', '19325'];
 
         const mapaAsistencia = {
             '1':  '4307', '2':  '4422', '3':  '4424', '4':  '4426',
@@ -145,7 +146,7 @@
             '33': '4840', '34': '4842', '35': '4844', '36': '4846',
             '37': '4848', '38': '4850', '39': '4852', '40': '4854',
             '41': '4856', '42': '4858', '43': '4860', '44': '4862',
-            '45': '4864','46': '4866', '47': '4868', '48': '4870',
+            '45': '4864', '46': '4866', '47': '4868', '48': '4870',
         };
 
         const ID_LISTBOX_BASE = 'valorControl19403';
@@ -153,7 +154,7 @@
         const KEY_CONSECUTIVO = 'auto_sesion_consecutivo';
         const KEY_PUSO_SCRIPT = 'auto_sesion_puso_script';
         const KEY_QUITADOS    = 'auto_sesion_quitados';
-        const IDS_SESION      = ['19264', '19285', '19305', '19325'];
+        const ID_BOTON_ACTUALIZAR = 'botonActualizarInformacion';
 
         function obtenerHistorial() {
             try { return JSON.parse(localStorage.getItem(KEY_HISTORIAL) || '[]'); } catch { return []; }
@@ -164,17 +165,17 @@
         function obtenerQuitados() {
             try { return JSON.parse(localStorage.getItem(KEY_QUITADOS) || '[]'); } catch { return []; }
         }
+
         function guardarHistorial(sesionesNuevas) {
             const historialActual = obtenerHistorial();
             const combinado = [...new Set([...historialActual, ...sesionesNuevas])];
-            combinado.sort((a, b) => parseInt(a) - parseInt(b));
+            combinado.sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
             localStorage.setItem(KEY_HISTORIAL, JSON.stringify(combinado));
+            console.log('Sesiones guardadas al actualizar:', combinado);
         }
+
         function limpiarHistorial() {
-            localStorage.removeItem(KEY_HISTORIAL);
-            localStorage.removeItem(KEY_CONSECUTIVO);
-            localStorage.removeItem(KEY_PUSO_SCRIPT);
-            localStorage.removeItem(KEY_QUITADOS);
+            [KEY_HISTORIAL, KEY_CONSECUTIVO, KEY_PUSO_SCRIPT, KEY_QUITADOS].forEach(k => localStorage.removeItem(k));
         }
 
         function verificarFichaNueva() {
@@ -186,48 +187,57 @@
             if (valorActual) localStorage.setItem(KEY_CONSECUTIVO, valorActual);
         }
 
-        function modoInstitucion() {
-            verificarFichaNueva();
-            function recalcularHistorial() {
-                const sesionesEstaPestana = [];
-                camposSesion.forEach(({ id }) => {
-                    const campo = document.getElementById(id);
-                    if (campo) {
-                        const val = campo.value.trim();
-                        if (val !== '' && mapaAsistencia[val] && !sesionesEstaPestana.includes(val))
-                            sesionesEstaPestana.push(val);
-                    }
-                });
-                document.querySelectorAll('input').forEach(input => {
-                    const val = input.value.trim();
-                    const esIdSesion = IDS_SESION.some(idPart => input.id.includes(idPart));
-                    if (esIdSesion && val !== '' && mapaAsistencia[val] && !sesionesEstaPestana.includes(val))
-                        sesionesEstaPestana.push(val);
-                });
-                guardarHistorial(sesionesEstaPestana);
-            }
+        function leerSesionesActuales() {
+            const sesiones = [];
             camposSesion.forEach(({ id }) => {
                 const campo = document.getElementById(id);
                 if (!campo) return;
-                ['input', 'change', 'keyup'].forEach(ev => campo.addEventListener(ev, recalcularHistorial));
+                const val = String(campo.value || '').trim();
+                if (val && mapaAsistencia[val] && !sesiones.includes(val)) sesiones.push(val);
             });
             document.querySelectorAll('input').forEach(input => {
+                const val = String(input.value || '').trim();
                 const esIdSesion = IDS_SESION.some(idPart => input.id.includes(idPart));
-                if (esIdSesion)
-                    ['input', 'change', 'keyup'].forEach(ev => input.addEventListener(ev, recalcularHistorial));
+                if (esIdSesion && val && mapaAsistencia[val] && !sesiones.includes(val)) sesiones.push(val);
             });
-            recalcularHistorial();
-            setTimeout(recalcularHistorial, 500);
-            setTimeout(recalcularHistorial, 1500);
-            setTimeout(recalcularHistorial, 3000);
+            sesiones.sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+            return sesiones;
+        }
+
+        function modoInstitucion() {
+            verificarFichaNueva();
+
+            // Solo guarda cuando se hace clic en el botón de guardar/actualizar
+            const boton = document.getElementById(ID_BOTON_ACTUALIZAR) || document.querySelector('[id*="Actualizar"], [id*="Guardar"]');
+            if (boton && !boton.dataset.listenerSesiones) {
+                boton.dataset.listenerSesiones = '1';
+                boton.addEventListener('click', () => {
+                    guardarHistorial(leerSesionesActuales());
+                });
+            }
+
+            const campos = [];
+            camposSesion.forEach(({ id }) => { const c = document.getElementById(id); if (c) campos.push(c); });
+            document.querySelectorAll('input').forEach(input => {
+                const esIdSesion = IDS_SESION.some(idPart => input.id.includes(idPart));
+                if (esIdSesion && !campos.includes(input)) campos.push(input);
+            });
+
+            campos.forEach(campo => {
+                ['input', 'change', 'keyup'].forEach(ev => {
+                    campo.addEventListener(ev, () => {
+                        console.log('Sesiones detectadas (sin guardar aún):', leerSesionesActuales());
+                    });
+                });
+            });
         }
 
         function modoPersonas() {
             const historial = obtenerHistorial();
             if (historial.length === 0) return;
-            const valoresAMarcar = historial.map(s => mapaAsistencia[s]).filter(Boolean);
+
+            const valoresAMarcar = historial.map(s => mapaAsistencia[String(s)]).filter(Boolean);
             const puestoScript   = obtenerPuestoScript();
-            const quitados       = obtenerQuitados();
 
             const listboxes = Array.from(document.querySelectorAll('select'))
                 .filter(el => el.id && el.id.includes(ID_LISTBOX_BASE));
@@ -243,16 +253,22 @@
                 listbox.querySelectorAll('option').forEach(op => {
                     if (yaSeleccionados.includes(op.value)) { op.selected = true; }
                     if (valoresAMarcar.includes(op.value) && !yaSeleccionados.includes(op.value)) {
-                        const numSesion = op.text.match(/S(\d+)/)?.[1];
+                        const numSesion = op.text.match(/S(\d+)/i)?.[1];
                         const noAsistioEstaSesion = noAsistioMarcados.some(v => {
                             const opNo = listbox.querySelector(`option[value="${v}"]`);
-                            return opNo?.text.match(/S(\d+)/)?.[1] === numSesion;
+                            return opNo?.text.match(/S(\d+)/i)?.[1] === numSesion;
                         });
-                        if (!noAsistioEstaSesion) { op.selected = true; huboCambio = true; }
+                        if (!noAsistioEstaSesion) {
+                            op.selected = true;
+                            puestoScript.push(op.value);
+                            huboCambio = true;
+                        }
                     }
                 });
                 if (huboCambio) listbox.dispatchEvent(new Event('change', { bubbles: true }));
             });
+
+            localStorage.setItem(KEY_PUSO_SCRIPT, JSON.stringify(puestoScript));
         }
 
         function detectar() {
