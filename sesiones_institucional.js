@@ -1,199 +1,204 @@
 // ==UserScript==
-// @name         INSTITUCIONAL FULL HD
+// @name         SESIONES INSTITUCIONAL V8
 // @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
-// @version      2026.09.24.1
-// @description  Institucional: valores por defecto, cascadas documento/sexo/género, sesiones, validador edad/documento y autocompletado por cédula (Comprobador de Derechos + Supersalud con código por tipo de documento, verificación y aviso de sexo)
+// @version      2025-09-28
+// @description  Autocompletado, Asistencia a la Sesión, Comprobador, Aviso Líneas 5/6 y Validaciones
 // @author       You
 // @match        https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
-// @grant        GM_xmlhttpRequest
-// @connect      appb.saludcapital.gov.co
-// @connect      pqrdsuperargo.supersalud.gov.co
+// @grant        none
 // @run-at       document-end
 // ==/UserScript==
 
-(function () {
+(function() {
     'use strict';
 
-    // ════════════════════════════════════════════════════════════════════
-    // CONFIGURACIÓN COMPARTIDA
-    // ════════════════════════════════════════════════════════════════════
-    const bgSuccess = "rgba(50, 200, 150, 0.2)";
-
-    // IDs de los campos de la base Institucional (una sola tabla para todos los bloques)
-    const IDS = {
-        nombres: 'valorControl19129',
-        apellidos: 'valorControl19130',
-        linea_operativa: 'valorControl19009',
-        tema: 'valorControl19012',
-        tipo_doc: 'valorControl19131',
-        cedula: 'valorControl19132',
-        sexo: 'valorControl19133',
-        genero: 'valorControl19134',
-        orientacion: 'valorControl19135',
-        identidad_genero: 'valorControl19136',
-        fecha: 'valorControl19137',
-        pais: 'valorControl19138',
-        edad: 'valorControl19954',
-        etnia: 'valorControl19139',
-        pob_dif: 'valorControl19141',
-        Pob_inclusion: 'valorControl19142',
-        categoria_discapacidad: 'valorControl19143',
-        etapa_gestacion: 'valorControl19144',
-        ocupacion: 'valorControl19145',
-        rol_institucion: 'valorControl19146',
-        canalizacion: 'valorControl19148',
-        porquenosecanalizo: 'valorControl19149',
-    };
-
-    function getCampo(clave) { return document.querySelector('#' + IDS[clave]); }
-
-    // Asigna un valor y pinta el campo como "autocompletado"
-    function aplicar(campo, valor) {
-        if (!campo) return;
-        campo.value = valor;
-        campo.style.backgroundColor = bgSuccess;
-    }
-
-    // Asigna un valor SOLO si el campo está vacío, para no pisar una selección manual del usuario
-    function asignarSiVacio(campo, valor) {
-        if (campo && campo.value === "") aplicar(campo, valor);
-    }
-
-    // Aplica un objeto { clave: valor } sobre un mapa de campos
-    function aplicarMapa(campos, valores) {
-        Object.keys(valores).forEach((k) => aplicar(campos[k], valores[k]));
-    }
-
-    function ejecutarSeguro(nombre, fn) {
-        try { fn(); } catch (error) { console.error('[' + nombre + ']', error); }
-    }
+    let bgSuccess = "rgba(50, 200, 150, 0.2)";
 
     // ════════════════════════════════════════════════════════════════════
-    // BLOQUE 1 — DOCUMENTO / SEXO / GÉNERO (valores por defecto y cascadas)
+    // BLOQUE 1 — AUTOCOMPLETADO DE CAMPOS BÁSICOS
     // ════════════════════════════════════════════════════════════════════
-    ejecutarSeguro('Documento/sexo/género', function () {
-        const tipo_doc = getCampo('tipo_doc');
-        const sexo = getCampo('sexo');
-        const campos = {
-            genero: getCampo('genero'),
-            orientacion: getCampo('orientacion'),
-            identidad_genero: getCampo('identidad_genero'),
-            etnia: getCampo('etnia'),
-            pais: getCampo('pais'),
-            pob_dif: getCampo('pob_dif'),
-            Pob_inclusion: getCampo('Pob_inclusion'),
-            categoria_discapacidad: getCampo('categoria_discapacidad'),
-            etapa_gestacion: getCampo('etapa_gestacion'),
-            canalizacion: getCampo('canalizacion'),
-            porquenosecanalizo: getCampo('porquenosecanalizo'),
-            ocupacion: getCampo('ocupacion'),
+    try {
+        let tipo_doc = document.querySelector('#valorControl19131'),
+            sexo = document.querySelector('#valorControl19133'),
+            genero = document.querySelector('#valorControl19134'),
+            orientacion = document.querySelector('#valorControl19135'),
+            identidad_genero = document.querySelector('#valorControl19136'),
+            etnia = document.querySelector('#valorControl19139'),
+            pais = document.querySelector('#valorControl19138'),
+            pob_dif = document.querySelector('#valorControl19141'),
+            Pob_inclusion = document.querySelector('#valorControl19142'),
+            categoria_discapacidad = document.querySelector('#valorControl19143'),
+            etapa_gestacion = document.querySelector('#valorControl19144'),
+            canalizacion = document.querySelector('#valorControl19148'),
+            porquenosecanalizo = document.querySelector('#valorControl19149'),
+            ocupacion = document.querySelector('#valorControl19145'),
+            rol = document.querySelector('#valorControl19146');
+
+        let ultimoTipoDoc = tipo_doc ? tipo_doc.value : '',
+            ultimoSexo = sexo ? sexo.value : '';
+
+        const set = (el, v) => {
+            if (el) {
+                el.value = v;
+                el.style.backgroundColor = bgSuccess;
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
         };
-        const rol_institucion = getCampo('rol_institucion');
 
-        // Valores por defecto (solo si están vacíos)
-        asignarSiVacio(campos.ocupacion, '');
-        asignarSiVacio(rol_institucion, '4120');
+        const elems = { etnia, pais, pob_dif, Pob_inclusion, categoria_discapacidad, etapa_gestacion, canalizacion, porquenosecanalizo, ocupacion, rol };
+        const mapaDocA = { etnia: '84', pais: '50', pob_dif: '2620', Pob_inclusion: '4048', categoria_discapacidad: '3822', etapa_gestacion: '3785', canalizacion: '959', porquenosecanalizo: '4129', ocupacion: '903', rol: '4120' };
+        const mapaDocB = { ...mapaDocA, pais: '236', pob_dif: '4051', canalizacion: '', porquenosecanalizo: '' };
 
-        // Al cambiar el tipo de documento: valores comunes + los propios de cada grupo
-        const VALORES_COMUNES_DOC = {
-            etnia: '84',
-            Pob_inclusion: '4048',
-            categoria_discapacidad: '3822',
-            etapa_gestacion: '3785',
-            canalizacion: '',
-            porquenosecanalizo: '',
-            ocupacion: '1063',
+        const aplicarMapa = mapa => {
+            for (const k in mapa) set(elems[k], mapa[k]);
         };
-        const GRUPOS_DOC = [
-            // CC, RC, TI (nacionales): además pinta el propio campo de tipo de documento
-            { docs: [59, 60, 61], colorearDoc: true, valores: { pais: '50', pob_dif: '2620' } },
-            // CE, NUIP, Pasaporte, Adulto sin ID, Menor sin ID, PPT (extranjeros)
-            { docs: [62, 63, 64, 65, 66, 2482], colorearDoc: false, valores: { pais: '236', pob_dif: '4051' } },
-        ];
 
-        // Al cambiar el sexo o la edad: género / orientación / identidad de género.
-        // Con edad conocida: de 14 años en adelante → reglas de mayores; menores de 14 → reglas de menores.
-        // Sin edad (campo vacío o inexistente) se usa la regla anterior: CC → mayores, otro documento → menores.
-        const EDAD_MINIMA_MAYORES = 14;
-        const CASCADA_MAYORES = {
-            '67': { genero: '70', orientacion: '4024', identidad_genero: '4515' },
-            '68': { genero: '71', orientacion: '4024', identidad_genero: '4514' },
-        };
-        const CASCADA_MENORES = { genero: '4513', orientacion: '4028', identidad_genero: '4020' };
-
-        // Campo de edad (mismo criterio que el validador). Se busca como máximo cada 500 ms
-        // mientras no exista, para no recorrer la página en cada revisión.
-        const getEdad = () => getCampo('edad') || document.querySelector('[id*="' + IDS.edad + '"]');
-        let edadEl = getEdad();
-        let ultimaBusquedaEdad = Date.now();
-
-        let ultimoTipoDoc = tipo_doc ? tipo_doc.value : '';
-        let ultimoSexo = sexo ? sexo.value : '';
-        let ultimaEdad = edadEl ? edadEl.value : '';
-
-        // Sin retardo, igual que el script original
-        setInterval(function () {
-            if (!tipo_doc || !sexo) return;
+        setInterval(function() {
+            if (!tipo_doc || !sexo) {
+                tipo_doc = document.querySelector('#valorControl19131');
+                sexo = document.querySelector('#valorControl19133');
+                genero = document.querySelector('#valorControl19134');
+                orientacion = document.querySelector('#valorControl19135');
+                identidad_genero = document.querySelector('#valorControl19136');
+                etnia = document.querySelector('#valorControl19139');
+                pais = document.querySelector('#valorControl19138');
+                pob_dif = document.querySelector('#valorControl19141');
+                Pob_inclusion = document.querySelector('#valorControl19142');
+                categoria_discapacidad = document.querySelector('#valorControl19143');
+                etapa_gestacion = document.querySelector('#valorControl19144');
+                canalizacion = document.querySelector('#valorControl19148');
+                porquenosecanalizo = document.querySelector('#valorControl19149');
+                ocupacion = document.querySelector('#valorControl19145');
+                rol = document.querySelector('#valorControl19146');
+                if (!tipo_doc || !sexo) return;
+                Object.assign(elems, { etnia, pais, pob_dif, Pob_inclusion, categoria_discapacidad, etapa_gestacion, canalizacion, porquenosecanalizo, ocupacion, rol });
+            }
 
             const docActual = tipo_doc.value;
             const sexoActual = sexo.value;
 
-            if (!edadEl || !edadEl.isConnected) {
-                const ahora = Date.now();
-                if (ahora - ultimaBusquedaEdad > 500) {
-                    ultimaBusquedaEdad = ahora;
-                    edadEl = getEdad();
-                    if (edadEl) ultimaEdad = edadEl.value; // punto de partida: no dispara la cascada
-                }
-            }
-            const edadActual = edadEl ? edadEl.value : '';
-
             if (docActual !== ultimoTipoDoc) {
                 ultimoTipoDoc = docActual;
                 const v = parseInt(docActual, 10);
-                const grupo = GRUPOS_DOC.find((g) => g.docs.includes(v));
-                if (grupo) {
-                    if (grupo.colorearDoc) tipo_doc.style.backgroundColor = bgSuccess;
-                    aplicarMapa(campos, Object.assign({}, VALORES_COMUNES_DOC, grupo.valores));
+                if ([59, 60, 61].includes(v)) {
+                    tipo_doc.style.backgroundColor = bgSuccess;
+                    aplicarMapa(mapaDocA);
+                }
+                if ([62, 63, 64, 65, 66, 2482, 1640, 1639].includes(v)) {
+                    tipo_doc.style.backgroundColor = bgSuccess;
+                    aplicarMapa(mapaDocB);
                 }
             }
 
-            if (sexoActual !== ultimoSexo || edadActual !== ultimaEdad) {
+            if (sexoActual !== ultimoSexo) {
                 ultimoSexo = sexoActual;
-                ultimaEdad = edadActual;
-                const esHombreOMujer = sexoActual === '67' || sexoActual === '68';
-                const edad = parseInt(edadActual, 10);
-                const esMayor = !isNaN(edad) ? edad >= EDAD_MINIMA_MAYORES : tipo_doc.value === '59';
-                const cascada = esMayor
-                    ? CASCADA_MAYORES[sexoActual]
-                    : (esHombreOMujer ? CASCADA_MENORES : null);
-                if (cascada) {
+                if (tipo_doc.value === '59') {
                     sexo.style.backgroundColor = bgSuccess;
-                    aplicarMapa(campos, cascada);
+                    if (sexoActual === '67') {
+                        set(genero, '70');
+                        set(orientacion, '4024');
+                        set(identidad_genero, '4515');
+                    } else if (sexoActual === '68') {
+                        set(genero, '71');
+                        set(orientacion, '4024');
+                        set(identidad_genero, '4514');
+                    }
+                } else if (sexoActual === '67' || sexoActual === '68') {
+                    sexo.style.backgroundColor = bgSuccess;
+                    set(genero, '4513');
+                    set(orientacion, '4028');
+                    set(identidad_genero, '4020');
                 }
             }
-        });
-    });
+        }, 100);
+
+    } catch (error) {
+        console.error(error);
+    }
 
     // ════════════════════════════════════════════════════════════════════
-    // BLOQUE 2 — VALORES POR DEFECTO (evaluación)
+    // BLOQUE 2 — AUTOCOMPLETADO DE TAMIZAJES
     // ════════════════════════════════════════════════════════════════════
-    ejecutarSeguro('Valores por defecto evaluación', function () {
-        const NO_APLICA_6 = "6. No aplica (no cumple con los criterios)";
-        const NO_APLICA_3 = "3. No aplica (no cumple con los criterios)";
-        [
-            ['valorControl14647', NO_APLICA_6], // oms
-            ['valorControl14648', NO_APLICA_6], // find
-            ['valorControl14649', NO_APLICA_6], // epoc
-            ['valorControl14650', NO_APLICA_6], // visual
-            ['valorControl14651', NO_APLICA_3], // auditivo
-            ['valorControl14656', '1'],         // asistencia
-        ].forEach(([id, valor]) => asignarSiVacio(document.querySelector('#' + id), valor));
-    });
+    try {
+        let oms                    = document.querySelector('#valorControl19155');
+        let find                   = document.querySelector('#valorControl19156');
+        let frecuencia_cardiaca    = document.querySelector('#valorControl19157');
+        let tension_arterial       = document.querySelector('#valorControl19158');
+        let diezciciete            = document.querySelector('#valorControl19160');
+        let dieziocho              = document.querySelector('#valorControl19161');
+        let cuarenta               = document.querySelector('#valorControl19163');
+        let ojo_derecho            = document.querySelector('#valorControl19164');
+        let ojo_izquierdo          = document.querySelector('#valorControl19165');
+        let oido_derecho           = document.querySelector('#valorControl19167');
+        let oido_izquierdo         = document.querySelector('#valorControl19168');
+        let intencion_reproductiva = document.querySelector('#valorControl19170');
+        let satisfaccion           = document.querySelector('#valorControl19171');
+        let cuidado_menstrual      = document.querySelector('#valorControl19172');
+        let mini_cog               = document.querySelector('#valorControl19173');
+        let clasificacion_riesgo   = document.querySelector('#valorControl19174');
+        let aplica_tamizaje        = document.querySelector('#valorControl19176');
+        let escala_fies            = document.querySelector('#valorControl19180');
+        let enfrentar_mejor        = document.querySelector('#valorControl19182');
+        let mejorar_manejo         = document.querySelector('#valorControl19183');
+        let tomar_mejores          = document.querySelector('#valorControl19184');
+        let mi_bienestar           = document.querySelector('#valorControl19186');
+
+        if (oms) {
+            if (oms.value === "")                                              { oms.value = "4182";                  oms.style.backgroundColor = bgSuccess; }
+            if (find && find.value === "")                                     { find.value = "4452";                 find.style.backgroundColor = bgSuccess; }
+            if (frecuencia_cardiaca && frecuencia_cardiaca.value === "")       { frecuencia_cardiaca.value = "4453";  frecuencia_cardiaca.style.backgroundColor = bgSuccess; }
+            if (tension_arterial && tension_arterial.value === "")             { tension_arterial.value = "4454";    tension_arterial.style.backgroundColor = bgSuccess; }
+            if (diezciciete && diezciciete.value === "")                       { diezciciete.value = "4185";         diezciciete.style.backgroundColor = bgSuccess; }
+            if (dieziocho && dieziocho.value === "")                           { dieziocho.value = "4232";           dieziocho.style.backgroundColor = bgSuccess; }
+            if (cuarenta && cuarenta.value === "")                             { cuarenta.value = "4253";            cuarenta.style.backgroundColor = bgSuccess; }
+            if (ojo_derecho && ojo_derecho.value === "")                       { ojo_derecho.value = "4191";         ojo_derecho.style.backgroundColor = bgSuccess; }
+            if (ojo_izquierdo && ojo_izquierdo.value === "")                   { ojo_izquierdo.value = "4191";       ojo_izquierdo.style.backgroundColor = bgSuccess; }
+            if (oido_derecho && oido_derecho.value === "")                     { oido_derecho.value = "4235";        oido_derecho.style.backgroundColor = bgSuccess; }
+            if (oido_izquierdo && oido_izquierdo.value === "")                 { oido_izquierdo.value = "4235";      oido_izquierdo.style.backgroundColor = bgSuccess; }
+            if (intencion_reproductiva && intencion_reproductiva.value === "") { intencion_reproductiva.value = "4457"; intencion_reproductiva.style.backgroundColor = bgSuccess; }
+            if (satisfaccion && satisfaccion.value === "")                     { satisfaccion.value = "4457";        satisfaccion.style.backgroundColor = bgSuccess; }
+            if (cuidado_menstrual && cuidado_menstrual.value === "")           { cuidado_menstrual.value = "4258";   cuidado_menstrual.style.backgroundColor = bgSuccess; }
+            if (mini_cog && mini_cog.value === "")                             { mini_cog.value = "4455";            mini_cog.style.backgroundColor = bgSuccess; }
+            if (clasificacion_riesgo && clasificacion_riesgo.value === "")     { clasificacion_riesgo.value = "4456"; clasificacion_riesgo.style.backgroundColor = bgSuccess; }
+            if (aplica_tamizaje && aplica_tamizaje.value === "")               { aplica_tamizaje.value = "4258";     aplica_tamizaje.style.backgroundColor = bgSuccess; }
+            if (escala_fies && escala_fies.value === "")                       { escala_fies.value = "4272";         escala_fies.style.backgroundColor = bgSuccess; }
+            if (enfrentar_mejor && enfrentar_mejor.value === "")               { enfrentar_mejor.value = "4458";     enfrentar_mejor.style.backgroundColor = bgSuccess; }
+            if (mejorar_manejo && mejorar_manejo.value === "")                 { mejorar_manejo.value = "4458";      mejorar_manejo.style.backgroundColor = bgSuccess; }
+            if (tomar_mejores && tomar_mejores.value === "")                   { tomar_mejores.value = "4458";       tomar_mejores.style.backgroundColor = bgSuccess; }
+            if (mi_bienestar && mi_bienestar.value === "")                     { mi_bienestar.value = "4460";        mi_bienestar.style.backgroundColor = bgSuccess; }
+
+            oms.addEventListener('change', function() {
+                if (find && find.value === "")                                     { find.value = "4452";                 find.style.backgroundColor = bgSuccess; }
+                if (frecuencia_cardiaca && frecuencia_cardiaca.value === "")       { frecuencia_cardiaca.value = "4453";  frecuencia_cardiaca.style.backgroundColor = bgSuccess; }
+                if (tension_arterial && tension_arterial.value === "")             { tension_arterial.value = "4454";    tension_arterial.style.backgroundColor = bgSuccess; }
+                if (diezciciete && diezciciete.value === "")                       { diezciciete.value = "4185";         diezciciete.style.backgroundColor = bgSuccess; }
+                if (dieziocho && dieziocho.value === "")                           { dieziocho.value = "4232";           dieziocho.style.backgroundColor = bgSuccess; }
+                if (cuarenta && cuarenta.value === "")                             { cuarenta.value = "4253";            cuarenta.style.backgroundColor = bgSuccess; }
+                if (ojo_derecho && ojo_derecho.value === "")                       { ojo_derecho.value = "4191";         ojo_derecho.style.backgroundColor = bgSuccess; }
+                if (ojo_izquierdo && ojo_izquierdo.value === "")                   { ojo_izquierdo.value = "4191";       ojo_izquierdo.style.backgroundColor = bgSuccess; }
+                if (oido_derecho && oido_derecho.value === "")                     { oido_derecho.value = "4235";        oido_derecho.style.backgroundColor = bgSuccess; }
+                if (oido_izquierdo && oido_izquierdo.value === "")                 { oido_izquierdo.value = "4235";      oido_izquierdo.style.backgroundColor = bgSuccess; }
+                if (intencion_reproductiva && intencion_reproductiva.value === "") { intencion_reproductiva.value = "4457"; intencion_reproductiva.style.backgroundColor = bgSuccess; }
+                if (satisfaccion && satisfaccion.value === "")                     { satisfaccion.value = "4457";        satisfaccion.style.backgroundColor = bgSuccess; }
+                if (cuidado_menstrual && cuidado_menstrual.value === "")           { cuidado_menstrual.value = "4258";   cuidado_menstrual.style.backgroundColor = bgSuccess; }
+                if (mini_cog && mini_cog.value === "")                             { mini_cog.value = "4455";            mini_cog.style.backgroundColor = bgSuccess; }
+                if (clasificacion_riesgo && clasificacion_riesgo.value === "")     { clasificacion_riesgo.value = "4456"; clasificacion_riesgo.style.backgroundColor = bgSuccess; }
+                if (aplica_tamizaje && aplica_tamizaje.value === "")               { aplica_tamizaje.value = "4258";     aplica_tamizaje.style.backgroundColor = bgSuccess; }
+                if (escala_fies && escala_fies.value === "")                       { escala_fies.value = "4272";         escala_fies.style.backgroundColor = bgSuccess; }
+                if (enfrentar_mejor && enfrentar_mejor.value === "")               { enfrentar_mejor.value = "4458";     enfrentar_mejor.style.backgroundColor = bgSuccess; }
+                if (mejorar_manejo && mejorar_manejo.value === "")                 { mejorar_manejo.value = "4458";      mejorar_manejo.style.backgroundColor = bgSuccess; }
+                if (tomar_mejores && tomar_mejores.value === "")                   { tomar_mejores.value = "4458";       tomar_mejores.style.backgroundColor = bgSuccess; }
+                if (mi_bienestar && mi_bienestar.value === "")                     { mi_bienestar.value = "4460";        mi_bienestar.style.backgroundColor = bgSuccess; }
+            });
+        }
+    } catch (error) {
+        console.error(error);
+    }
 
     // ════════════════════════════════════════════════════════════════════
-    // BLOQUE 3 — ASISTENCIA A LA SESIÓN (Institución → Personas) + VALIDADOR EDAD/DOCUMENTO
+    // BLOQUE 3 — ASISTENCIA A LA SESIÓN + VALIDADOR EDAD/DOCUMENTO
     // ════════════════════════════════════════════════════════════════════
     (function autoSesion() {
 
@@ -203,6 +208,7 @@
             { id: 'valorControl19049' },
             { id: 'valorControl19069' },
         ];
+        const IDS_SESION = ['19008', '19029', '19049', '19069'];
 
         const mapaAsistencia = {
             '1':  '4307', '2':  '4422', '3':  '4424', '4':  '4426', '5':  '4428',
@@ -215,15 +221,15 @@
             '36': '4846', '37': '4848', '38': '4850', '39': '4852', '40': '4854',
             '41': '4856', '42': '4858', '43': '4860', '44': '4862', '45': '4864',
             '46': '4866', '47': '4868', '48': '4870',
-
         };
 
-        const ID_LISTBOX_BASE = 'valorControl19147';
-        const KEY_HISTORIAL   = 'auto_sesion_historial';
-        const KEY_CONSECUTIVO = 'auto_sesion_consecutivo';
-        const ID_EDAD         = IDS.edad;
-        const ID_DOCUMENTO    = IDS.tipo_doc;
-        const IDS_SESION      = ['19008', '19029', '19049', '19069'];
+        const ID_LISTBOX_BASE     = 'valorControl19147';
+        const KEY_HISTORIAL       = 'auto_sesion_historial';
+        const KEY_CONSECUTIVO     = 'auto_sesion_consecutivo';
+        const KEY_PUSO_SCRIPT     = 'auto_sesion_puso_script';
+        const ID_EDAD             = 'valorControl19954';
+        const ID_DOCUMENTO        = 'valorControl19131';
+        const ID_BOTON_ACTUALIZAR = 'botonActualizarInformacion';
 
         const reglasDocumento = {
             '60': { nombre: 'Registro Civil',       edadMin: 0,  edadMax: 6   },
@@ -231,7 +237,6 @@
             '59': { nombre: 'Cédula de Ciudadanía', edadMin: 18, edadMax: 999 },
         };
 
-        // Normaliza el número de sesión: cualquier valor mayor a 48 se trata como 48
         function normalizarSesion(val) {
             const n = parseInt(val, 10);
             if (isNaN(n)) return '';
@@ -243,19 +248,22 @@
         function obtenerHistorial() {
             try { return JSON.parse(localStorage.getItem(KEY_HISTORIAL) || '[]'); } catch { return []; }
         }
-        // FIX: ya no se une con el historial anterior, se SOBRESCRIBE con lo que
-        // hay actualmente en los campos de sesión. Esto evita que sesiones viejas
-        // (p. ej. una "3" que quedó de antes) se queden marcadas para siempre
-        // junto con la sesión nueva que se está digitando (p. ej. "30").
+
+        function obtenerPuestoScript() {
+            try { return JSON.parse(localStorage.getItem(KEY_PUSO_SCRIPT) || '[]'); } catch { return []; }
+        }
+
         function guardarHistorial(sesionesNuevas) {
             const combinado = [...new Set(sesionesNuevas)];
-            combinado.sort((a, b) => parseInt(a) - parseInt(b));
+            combinado.sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
             localStorage.setItem(KEY_HISTORIAL, JSON.stringify(combinado));
+            console.log('Sesiones guardadas al actualizar:', combinado);
         }
+
         function limpiarHistorial() {
-            localStorage.removeItem(KEY_HISTORIAL);
-            localStorage.removeItem(KEY_CONSECUTIVO);
+            [KEY_HISTORIAL, KEY_CONSECUTIVO, KEY_PUSO_SCRIPT].forEach(k => localStorage.removeItem(k));
         }
+
         function verificarFichaNueva() {
             const consecutivo = document.querySelector('[id*="Consecutivo"], [name*="consecutivo"], [id*="consecutivo"]');
             if (!consecutivo) return;
@@ -265,47 +273,56 @@
             if (valorActual) localStorage.setItem(KEY_CONSECUTIVO, valorActual);
         }
 
-        function modoInstitucion() {
-            verificarFichaNueva();
-            function recalcularHistorial() {
-                const sesionesEstaPestana = [];
-                camposSesion.forEach(({ id }) => {
-                    const campo = document.getElementById(id);
-                    if (campo) {
-                        const val = normalizarSesion(campo.value.trim());
-                        if (val !== '' && mapaAsistencia[val] && !sesionesEstaPestana.includes(val))
-                            sesionesEstaPestana.push(val);
-                    }
-                });
-                document.querySelectorAll('input').forEach(input => {
-                    const val = normalizarSesion(input.value.trim());
-                    const esIdSesion = IDS_SESION.some(idPart => input.id.includes(idPart));
-                    if (esIdSesion && val !== '' && mapaAsistencia[val] && !sesionesEstaPestana.includes(val))
-                        sesionesEstaPestana.push(val);
-                });
-                guardarHistorial(sesionesEstaPestana);
-            }
+        function leerSesionesActuales() {
+            const sesiones = [];
             camposSesion.forEach(({ id }) => {
                 const campo = document.getElementById(id);
                 if (!campo) return;
-                ['input', 'change', 'keyup'].forEach(ev => campo.addEventListener(ev, recalcularHistorial));
+                const val = normalizarSesion(campo.value.trim());
+                if (val && mapaAsistencia[val] && !sesiones.includes(val)) sesiones.push(val);
             });
             document.querySelectorAll('input').forEach(input => {
+                const val = normalizarSesion(input.value.trim());
                 const esIdSesion = IDS_SESION.some(idPart => input.id.includes(idPart));
-                if (esIdSesion)
-                    ['input', 'change', 'keyup'].forEach(ev => input.addEventListener(ev, recalcularHistorial));
+                if (esIdSesion && val && mapaAsistencia[val] && !sesiones.includes(val)) sesiones.push(val);
             });
-            recalcularHistorial();
-            setTimeout(recalcularHistorial, 500);
-            setTimeout(recalcularHistorial, 1500);
-            setTimeout(recalcularHistorial, 3000);
+            sesiones.sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+            return sesiones;
+        }
+
+        function modoInstitucion() {
+            verificarFichaNueva();
+
+            const boton = document.getElementById(ID_BOTON_ACTUALIZAR) || document.querySelector('[id*="Actualizar"], [id*="Guardar"]');
+            if (boton && !boton.dataset.listenerSesiones) {
+                boton.dataset.listenerSesiones = '1';
+                boton.addEventListener('click', () => {
+                    guardarHistorial(leerSesionesActuales());
+                });
+            }
+
+            const campos = [];
+            camposSesion.forEach(({ id }) => { const c = document.getElementById(id); if (c) campos.push(c); });
+            document.querySelectorAll('input').forEach(input => {
+                const esIdSesion = IDS_SESION.some(idPart => input.id.includes(idPart));
+                if (esIdSesion && !campos.includes(input)) campos.push(input);
+            });
+
+            campos.forEach(campo => {
+                ['input', 'change', 'keyup'].forEach(ev => {
+                    campo.addEventListener(ev, () => {
+                        console.log('Sesiones detectadas (sin guardar aún):', leerSesionesActuales());
+                    });
+                });
+            });
         }
 
         function modoPersonas() {
             const historial = obtenerHistorial();
             if (historial.length === 0) { iniciarValidador(); return; }
 
-            const valoresAMarcar = historial.map(s => mapaAsistencia[s]).filter(Boolean);
+            const valoresAMarcar = historial.map(s => mapaAsistencia[String(s)]).filter(Boolean);
+            const puestoScript   = obtenerPuestoScript();
 
             const listboxes = Array.from(document.querySelectorAll('select'))
                 .filter(el => el.id && el.id.includes(ID_LISTBOX_BASE));
@@ -323,18 +340,23 @@
                 listbox.querySelectorAll('option').forEach(op => {
                     if (yaSeleccionados.includes(op.value)) { op.selected = true; }
                     if (valoresAMarcar.includes(op.value) && !yaSeleccionados.includes(op.value)) {
-                        const numSesion = op.text.match(/S(\d+)/)?.[1];
+                        const numSesion = op.text.match(/S(\d+)/i)?.[1];
                         const noAsistioEstaSesion = noAsistioMarcados.some(v => {
                             const opNo = listbox.querySelector(`option[value="${v}"]`);
-                            return opNo?.text.match(/S(\d+)/)?.[1] === numSesion;
+                            return opNo?.text.match(/S(\d+)/i)?.[1] === numSesion;
                         });
-                        if (!noAsistioEstaSesion) { op.selected = true; huboCambio = true; }
+                        if (!noAsistioEstaSesion) {
+                            op.selected = true;
+                            puestoScript.push(op.value);
+                            huboCambio = true;
+                        }
                     }
                 });
 
                 if (huboCambio) listbox.dispatchEvent(new Event('change', { bubbles: true }));
             });
 
+            localStorage.setItem(KEY_PUSO_SCRIPT, JSON.stringify(puestoScript));
             iniciarValidador();
         }
 
@@ -358,27 +380,6 @@
             for (let i = 0; i < total; i++) { validar(camposEdad[i], camposDoc[i], i + 1); }
         }
 
-        // Persona -> "edad|documento" de la última corrección automática. Evita repetirla en bucle
-        // si GESI devolviera el documento anterior; se olvida apenas la edad y el documento coinciden.
-        const correccionesIntentadas = new Map();
-
-        // Cambia el tipo de documento al que corresponde por la edad y avisa unos segundos
-        function corregirTipoDocumento(campoEdad, campoDoc, valor, nombre, edad, num) {
-            if (campoDoc.tagName === 'SELECT' && !Array.from(campoDoc.options).some(o => o.value === valor)) return false;
-            campoDoc.value = valor;
-            ['input', 'change'].forEach(ev => campoDoc.dispatchEvent(new Event(ev, { bubbles: true })));
-            const previo = campoEdad.parentNode.querySelector('.mensaje-autocorreccion');
-            if (previo) previo.remove();
-            const div = document.createElement('div');
-            div.className   = 'mensaje-autocorreccion';
-            div.textContent = `✔ Persona ${num}: con ${edad} años el tipo de documento se cambió a "${nombre}".`;
-            Object.assign(div.style, { color: '#1b5e20', background: '#e8f5e9', padding: '6px',
-                marginTop: '4px', border: '1px solid #a5d6a7', borderRadius: '4px', fontSize: '12px' });
-            campoEdad.parentNode.appendChild(div);
-            setTimeout(() => div.remove(), 6000);
-            return true;
-        }
-
         function validar(campoEdad, campoDoc, num) {
             if (!campoEdad || !campoDoc) return;
             const edad = parseInt(campoEdad.value, 10);
@@ -387,19 +388,12 @@
             campoDoc.style.border  = campoDoc.style.background  = '';
             const prev = campoEdad.parentNode.querySelector('.mensaje-validacion');
             if (prev) prev.remove();
-            if (isNaN(edad) || !docValue || !reglasDocumento[docValue]) { correccionesIntentadas.delete(num); return; }
+            if (isNaN(edad) || !docValue || !reglasDocumento[docValue]) return;
             const regla = reglasDocumento[docValue];
             if (edad < regla.edadMin || edad > regla.edadMax) {
                 let docCorrecto = 'Desconocido';
-                let docCorrectoValor = null;
-                for (const [valor, r] of Object.entries(reglasDocumento)) {
-                    if (edad >= r.edadMin && edad <= r.edadMax) { docCorrecto = r.nombre; docCorrectoValor = valor; break; }
-                }
-                // Corrección automática: se cambia el tipo de documento al que corresponde por la edad
-                const clave = edad + '|' + docValue;
-                if (docCorrectoValor && correccionesIntentadas.get(num) !== clave) {
-                    correccionesIntentadas.set(num, clave);
-                    if (corregirTipoDocumento(campoEdad, campoDoc, docCorrectoValor, docCorrecto, edad, num)) return;
+                for (const r of Object.values(reglasDocumento)) {
+                    if (edad >= r.edadMin && edad <= r.edadMax) { docCorrecto = r.nombre; break; }
                 }
                 [campoEdad, campoDoc].forEach(c => { c.style.border = '2px solid red'; c.style.background = '#fff0f0'; });
                 if (!campoEdad.parentNode.querySelector('.mensaje-validacion')) {
@@ -410,8 +404,6 @@
                         marginTop: '4px', border: '1px solid #ff9999', borderRadius: '4px', fontSize: '12px' });
                     campoEdad.parentNode.appendChild(div);
                 }
-            } else {
-                correccionesIntentadas.delete(num);
             }
         }
 
@@ -428,405 +420,129 @@
     })(); // fin autoSesion
 
     // ════════════════════════════════════════════════════════════════════
-    // BLOQUE 4 — AUTOCOMPLETAR POR CÉDULA (Comprobador de Derechos + Supersalud)
-    // Llena nombres, apellidos, fecha de nacimiento y sexo al digitar el documento.
-    //  - Comprobador de Derechos: consulta solo por número (nombres, apellidos, fecha).
-    //  - Supersalud: consulta con el código del tipo de documento; se usa para el sexo
-    //    (y como respaldo de nombres/fecha), solo si el tipo de GESI está en la tabla.
-    //  - El sexo de Supersalud solo se acepta si los apellidos coinciden con los del Comprobador.
-    //  - Si no se logra el sexo, aparece un aviso debajo del campo Sexo.
+    // BLOQUE 4 — COMPROBADOR DOCUMENTOS PERSONAS vs TAMIZAJES
     // ════════════════════════════════════════════════════════════════════
-    (function autocompletarPorCedula() {
+    (function comprobadorDocumentos() {
 
-        const BASE_COMPROBADOR = 'https://appb.saludcapital.gov.co/comprobadordederechos/';
-        const BASE_SUPERSALUD = 'https://pqrdsuperargo.supersalud.gov.co/api/api/adres/';
+        const ID_DOC_PERSONAS   = 'valorControl19132';
+        const ID_DOC_TAMIZAJES  = 'valorControl19154';
+        const KEY_DOCS_PERSONAS = 'comprobador_docs_personas';
+        const KEY_CONSECUTIVO   = 'comprobador_consecutivo';
 
-        // value del tipo de documento en GESI -> código de tipo de documento en la URL de Supersalud.
-        // Confirmados: CC 0, TI 1, RC 8, CE 2, PPT 13.
-        // Si el tipo de GESI no está aquí (NUIP, Pasaporte, sin ID...), NO se consulta Supersalud.
-        // Para agregar uno: 'valor_GESI': 'codigo_Supersalud'.
-        const TIPO_DOC_GESI_A_SUPERSALUD = {
-            '59': '0',    // Cédula de Ciudadanía
-            '61': '1',    // Tarjeta de Identidad
-            '60': '8',    // Registro Civil
-            '62': '2',    // Cédula de Extranjería
-            '2482': '13', // PPT
-        };
-
-        // Código de sexo de Supersalud -> value del campo de sexo en GESI.
-        // 1 = Hombre, 2 = Mujer (confirmados).
-        // Intersexual no está mapeado: si Supersalud devuelve otro código, el sexo queda sin llenar (y se avisa).
-        const SEXO_SUPERSALUD_A_GESI = { 1: '67', 2: '68' };
-
-        const CLASE_AVISO_SEXO = 'aviso-sexo-revisar';
-        let autocompletando = false; // true mientras el script escribe, para no confundirlo con un cambio manual
-
-        // ---------- Utilidades ----------
-        function setValue(clave, value) {
-            const el = getCampo(clave);
-            if (!el) return false;
-
-            const v = value ?? '';
-            el.focus();
-            el.value = v;
-
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-
-            el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Tab' }));
-            el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Tab' }));
-
-            el.dispatchEvent(new Event('blur', { bubbles: true }));
-            return true;
+        function mostrarAviso(doc) {
+            const previo = document.getElementById('comprobador-aviso');
+            if (previo) previo.remove();
+            const aviso = document.createElement('div');
+            aviso.id = 'comprobador-aviso';
+            aviso.style.cssText = `position:fixed;top:20px;right:20px;z-index:99999;background:#fff3cd;
+                border:2px solid #e0a800;border-radius:8px;padding:16px 20px;max-width:360px;
+                box-shadow:0 4px 12px rgba(0,0,0,0.2);font-family:Arial,sans-serif;font-size:13px;color:#333;`;
+            aviso.innerHTML = `
+                <div style="font-weight:bold;font-size:14px;margin-bottom:10px;color:#c8700e;">⚠️ Documento no coincide</div>
+                <div style="padding:8px;background:#fff;border-radius:4px;border-left:3px solid red;">
+                    El documento <strong><code>${doc}</code></strong> en Tamizajes<br>
+                    <span style="color:red">no fue registrado en la pestaña Personas.</span>
+                </div>
+                <button id="comprobador-cerrar" style="margin-top:10px;width:100%;padding:6px;
+                    background:#e0a800;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px;">
+                    ✖ Cerrar
+                </button>`;
+            document.body.appendChild(aviso);
+            document.getElementById('comprobador-cerrar').addEventListener('click', () => aviso.remove());
         }
 
-        // Como setValue, pero en un <select> solo asigna si la opción existe
-        function setValueSiExiste(clave, value) {
-            const el = getCampo(clave);
-            if (!el || !value) return false;
-            if (el.tagName === 'SELECT' && !Array.from(el.options).some((o) => o.value === String(value))) return false;
-            return setValue(clave, value);
+        function obtenerDocs() {
+            try { return JSON.parse(localStorage.getItem(KEY_DOCS_PERSONAS) || '[]'); } catch { return []; }
+        }
+        function guardarDocs(docs) { localStorage.setItem(KEY_DOCS_PERSONAS, JSON.stringify(docs)); }
+        function limpiarStorage() {
+            localStorage.removeItem(KEY_DOCS_PERSONAS);
+            localStorage.removeItem(KEY_CONSECUTIVO);
         }
 
-        function extraerCampo(html, name) {
-            const regex = new RegExp('name="' + name + '"[^>]*value="([^"]*)"');
-            const m = html.match(regex);
-            return m ? m[1] : '';
+        function verificarFichaNueva() {
+            const consecutivo = document.querySelector('[id*="Consecutivo"], [name*="consecutivo"], [id*="consecutivo"]');
+            if (!consecutivo) return;
+            const valorActual   = (consecutivo.value || consecutivo.textContent || '').trim();
+            const valorGuardado = localStorage.getItem(KEY_CONSECUTIVO);
+            if (valorGuardado && valorActual !== valorGuardado) limpiarStorage();
+            if (valorActual) localStorage.setItem(KEY_CONSECUTIVO, valorActual);
         }
 
-        function gmRequest(opts) {
-    // En Tampermonkey: usa GM_xmlhttpRequest como siempre
-    if (typeof GM_xmlhttpRequest === 'function') {
-        return new Promise((resolve, reject) => {
-            GM_xmlhttpRequest(Object.assign({ timeout: 20000 }, opts, {
-                onload: resolve,
-                onerror: reject,
-                ontimeout: () => reject(new Error('timeout')),
-            }));
-        });
-    }
-    // Dentro de la app (1.0.45 o superior): la consulta la hace Python
-    const api = window.pywebview && window.pywebview.api;
-    if (!api || typeof api.cd_http_request !== 'function') {
-        return Promise.reject(new Error('puente de la app no disponible (¿app anterior a 1.0.45?)'));
-    }
-    return api.cd_http_request(Object.assign({ timeout: 20000 }, opts)).then((r) => {
-        if (!r || !r.ok) throw new Error((r && r.error) || 'error de red');
-        return r; // trae .status y .responseText, igual que GM_xmlhttpRequest
-    });
-}
-
-        // Une partes de un nombre ignorando vacíos: ['A', '', 'B'] -> 'A B'
-        function unir(...partes) {
-            return partes.map((p) => String(p ?? '').trim()).filter(Boolean).join(' ');
-        }
-
-        // Convierte aaaa-mm-dd al formato que espera el campo de GESI
-        // (input type="date" -> aaaa-mm-dd; texto -> dd/mm/aaaa)
-        function formatearFechaISO(iso) {
-            const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || '').trim());
-            if (!m) return String(iso || '').trim();
-            const el = getCampo('fecha');
-            if (el && el.type === 'date') return m[1] + '-' + m[2] + '-' + m[3];
-            return m[3] + '/' + m[2] + '/' + m[1];
-        }
-
-        // Apellidos comparables: sin tildes, mayúsculas, sin importar el orden de las palabras
-        function normalizarApellidos(s) {
-            return String(s || '')
-                .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-                .toUpperCase()
-                .split(/\s+/).filter(Boolean)
-                .sort().join(' ');
-        }
-
-        // Si la respuesta de Supersalud trae algún campo con el número de documento, debe ser el consultado.
-        // Si no trae ninguno, no se puede comprobar por ahí y decide la comparación de apellidos.
-        function numeroCoincide(d, documento) {
-            const quitarCeros = (s) => String(s).replace(/\D/g, '').replace(/^0+/, '');
-            const esperado = quitarCeros(documento);
-            for (const [k, v] of Object.entries(d)) {
-                if (!/(identific|documento|numero|nro|cedula|^id$)/i.test(k)) continue;
-                if (typeof v !== 'string' && typeof v !== 'number') continue;
-                const digitos = quitarCeros(v);
-                if (digitos && digitos !== esperado) return false;
+        function modoPersonas() {
+            verificarFichaNueva();
+            const campo = document.getElementById(ID_DOC_PERSONAS);
+            if (!campo) return;
+            function acumular() {
+                const val = campo.value.trim();
+                if (val === '') return;
+                const acumulado = new Set(obtenerDocs());
+                acumulado.add(val);
+                guardarDocs(Array.from(acumulado));
             }
-            return true;
+            acumular();
+            ['input', 'change', 'blur'].forEach(ev => campo.addEventListener(ev, acumular));
         }
 
-        // ---------- Aviso debajo del campo Sexo ----------
-        function quitarAvisoSexo() {
-            document.querySelectorAll('.' + CLASE_AVISO_SEXO).forEach((a) => a.remove());
-        }
+        function modoTamizajes() {
+            const campo = document.getElementById(ID_DOC_TAMIZAJES);
+            if (!campo) return;
 
-        function mostrarAvisoSexo(motivo) {
-            quitarAvisoSexo();
-            const campo = getCampo('sexo');
-            if (!campo || !campo.parentNode) return;
-            const div = document.createElement('div');
-            div.className = CLASE_AVISO_SEXO;
-            div.textContent = '⚠ No se pudo obtener el sexo automáticamente (' + motivo + '). Revíselo a mano: puede tener un valor anterior.';
-            Object.assign(div.style, { color: '#b30000', background: '#ffe6e6', padding: '6px',
-                marginTop: '4px', border: '1px solid #ff9999', borderRadius: '4px', fontSize: '12px' });
-            campo.parentNode.appendChild(div);
-        }
+            const valorAlCargar = campo.value.trim();
 
-        // ---------- Fuente 1: Comprobador de Derechos ----------
-        function parseTablasComprobador(doc) {
-            const TABLAS_IDS = [
-                'MainContent_grdContributivo',
-                'MainContent_grdBUDA',
-                'MainContent_grdSisben',
-                'MainContent_grdPoblacionEspecial',
-                'MainContent_grdSubsidiado',
-            ];
+            function verificarDoc() {
+                const doc = campo.value.trim();
+                if (doc === '') return;
+                const docs = obtenerDocs();
+                if (docs.length === 0) return;
+                campo.style.border = campo.style.background = '';
+                const previo = document.getElementById('comprobador-aviso');
+                if (previo) previo.remove();
+                if (!docs.includes(doc)) {
+                    campo.style.border = '2px solid red';
+                    campo.style.background = '#fff0f0';
+                    mostrarAviso(doc);
+                }
+            }
 
-            const registros = [];
-            TABLAS_IDS.forEach((id) => {
-                const tabla = doc.getElementById(id);
-                if (!tabla) return;
+            if (valorAlCargar === '') {
+                setTimeout(verificarDoc, 1200);
+            }
 
-                const filas = Array.from(tabla.querySelectorAll('tr'));
-                const headerRow = filas.find((f) => f.querySelector('th'));
-                if (!headerRow) return;
-
-                const headers = Array.from(headerRow.querySelectorAll('th')).map((th) => th.textContent.trim());
-
-                filas.forEach((fila) => {
-                    if (fila === headerRow) return;
-                    if (fila.classList.contains('RowEmpty')) return;
-
-                    const celdas = Array.from(fila.querySelectorAll('td')).map((td) => td.textContent.trim());
-                    if (!celdas.length) return;
-
-                    const registro = {};
-                    headers.forEach((h, i) => (registro[h] = celdas[i] || ''));
-                    registro._fuente = id;
-                    registros.push(registro);
+            let timer = null;
+            ['input', 'change', 'blur'].forEach(ev => {
+                campo.addEventListener(ev, () => {
+                    if (campo.value.trim() !== valorAlCargar) {
+                        clearTimeout(timer);
+                        timer = setTimeout(verificarDoc, 1500);
+                    }
                 });
             });
-            return registros;
         }
 
-        async function consultarComprobador(documento) {
-            const r1 = await gmRequest({ method: 'GET', url: BASE_COMPROBADOR + 'Consulta.aspx' });
-            const html1 = r1.responseText || '';
-
-            const viewstate = extraerCampo(html1, '__VIEWSTATE');
-            const viewstateGen = extraerCampo(html1, '__VIEWSTATEGENERATOR');
-            const eventValidation = extraerCampo(html1, '__EVENTVALIDATION');
-            const previousPage = extraerCampo(html1, '__PREVIOUSPAGE');
-
-            const body = new URLSearchParams({
-                __EVENTTARGET: '',
-                __EVENTARGUMENT: '',
-                __LASTFOCUS: '',
-                __VIEWSTATE: viewstate,
-                __VIEWSTATEGENERATOR: viewstateGen,
-                __PREVIOUSPAGE: previousPage,
-                __EVENTVALIDATION: eventValidation,
-                'ctl00$MainContent$txtConsecutivo': '',
-                'ctl00$MainContent$txtNoId': documento,
-                'ctl00$MainContent$txtFichaSisben': '',
-                'ctl00$MainContent$txtPriApellido': '',
-                'ctl00$MainContent$txtSegApellido': '',
-                'ctl00$MainContent$txtPriNombre': '',
-                'ctl00$MainContent$txtSegNombre': '',
-                'ctl00$ctl12': 'ctl00$MainContent$cmdConsultar',
-                __ASYNCPOST: 'true',
-                'ctl00$MainContent$cmdConsultar': 'Consultar',
-            }).toString();
-
-            const r2 = await gmRequest({
-                method: 'POST',
-                url: BASE_COMPROBADOR + 'Consulta.aspx',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'X-MicrosoftAjax': 'Delta=true',
-                    'X-Requested-With': 'XMLHttpRequest',
-                },
-                data: body,
-            });
-
-            if ((r2.responseText || '').indexOf('No se encontr') !== -1) return null;
-
-            const r3 = await gmRequest({ method: 'GET', url: BASE_COMPROBADOR + 'Resultados.aspx' });
-            const doc = new DOMParser().parseFromString(r3.responseText || '', 'text/html');
-            const r = parseTablasComprobador(doc)[0];
-            if (!r) return null;
-
-            return {
-                apellidos: unir(r['Primer Apellido'], r['Segundo Apellido']),
-                nombres: unir(r['Primer Nombre'], r['Segundo Nombre']),
-                fecha: (r['Fecha Nacimiento'] || '').trim(),
-            };
+        function detectarYEjecutar() {
+            if (document.getElementById(ID_DOC_PERSONAS)) modoPersonas();
+            if (document.getElementById(ID_DOC_TAMIZAJES)) modoTamizajes();
         }
 
-        // ---------- Fuente 2: Supersalud (con el código del tipo de documento) ----------
-        async function consultarSupersalud(documento, codigoTipo) {
-            const r = await gmRequest({
-                method: 'GET',
-                url: BASE_SUPERSALUD + codigoTipo + '/' + encodeURIComponent(documento),
-                headers: { Accept: 'application/json' },
-            });
-            if (r.status < 200 || r.status >= 300) return null;
+        if (document.readyState === 'complete') detectarYEjecutar();
+        else window.addEventListener('load', detectarYEjecutar);
 
-            let d;
-            try { d = JSON.parse(r.responseText || ''); } catch (e) { return null; }
-            if (!d || typeof d !== 'object') return null;
-
-            return {
-                apellidos: unir(d.apellido, d.s_apellido),
-                nombres: unir(d.nombre, d.s_nombre),
-                fecha: formatearFechaISO(d.fecha_nacimiento),
-                sexo: SEXO_SUPERSALUD_A_GESI[d.sexo] || '',
-                numeroOk: numeroCoincide(d, documento),
-            };
-        }
-
-        // ---------- Búsqueda ----------
-        // Devuelve { persona, motivoSexo }.
-        //  - persona: nombres, apellidos y fecha (obligatorios) y sexo (opcional, solo si se verificó).
-        //  - motivoSexo: '' si el sexo se obtuvo; si no, la razón para mostrar en el aviso.
-        // Nombres/apellidos/fecha salen del Comprobador; Supersalud solo completa lo que falte
-        // y únicamente si el tipo de documento está en la tabla.
-        async function buscarPersona(documento, tipoDoc) {
-            let base = null;
-            try {
-                base = await consultarComprobador(documento);
-            } catch (e) {
-                console.warn('[Autocompletar cédula] Falló Comprobador de Derechos:', e);
-            }
-
-            const codigoTipo = TIPO_DOC_GESI_A_SUPERSALUD[tipoDoc];
-            let sup = null;
-            let motivoSexo = '';
-
-            if (codigoTipo === undefined) {
-                motivoSexo = 'este tipo de documento no está configurado para Supersalud';
-            } else {
-                try {
-                    sup = await consultarSupersalud(documento, codigoTipo);
-                    if (!sup) motivoSexo = 'Supersalud no encontró a la persona con este tipo de documento';
-                } catch (e) {
-                    console.warn('[Autocompletar cédula] Falló Supersalud:', e);
-                    motivoSexo = 'falló la consulta a Supersalud';
-                }
-            }
-
-            const persona = {};
-            [base, sup].forEach((fuente) => {
-                if (!fuente) return;
-                ['nombres', 'apellidos', 'fecha'].forEach((c) => { if (!persona[c] && fuente[c]) persona[c] = fuente[c]; });
-            });
-
-            if (sup && !motivoSexo) {
-                if (!sup.sexo) {
-                    motivoSexo = 'Supersalud no entregó un sexo válido';
-                } else if (!base) {
-                    motivoSexo = 'no se pudo verificar la persona con el Comprobador de Derechos';
-                } else if (!sup.numeroOk) {
-                    motivoSexo = 'el número de documento de Supersalud no coincide';
-                } else if (!base.apellidos || normalizarApellidos(base.apellidos) !== normalizarApellidos(sup.apellidos)) {
-                    motivoSexo = 'los apellidos de Supersalud no coinciden con los del Comprobador';
-                } else {
-                    persona.sexo = sup.sexo;
-                }
-            }
-
-            const completa = persona.nombres && persona.apellidos && persona.fecha;
-            return { persona: completa ? persona : null, motivoSexo };
-        }
-
-        function showManualAlert() {
-            alert('No se encontró la cédula o hubo un error. Por favor, llena los campos manualmente.');
-        }
-
-        // ---------- Disparo ----------
-        let running = false;
-        let lastClave = '';
-
-        async function tryAutofill() {
-            const cedEl = getCampo('cedula');
-            if (!cedEl) return;
-
-            const cedula = (cedEl.value || '').trim();
-            if (!cedula) return;
-            if (running) return;
-
-            const tipoEl = getCampo('tipo_doc');
-            const tipoDoc = tipoEl ? String(tipoEl.value || '') : '';
-
-            // La clave incluye el tipo de documento: si se cambia el tipo, se vuelve a consultar
-            const clave = tipoDoc + '|' + cedula;
-            if (clave === lastClave) return;
-
-            const documento = cedula.replace(/[^0-9]/g, '');
-            if (!documento) return;
-
-            lastClave = clave;
-            running = true;
-            quitarAvisoSexo();
-
-            try {
-                const { persona, motivoSexo } = await buscarPersona(documento, tipoDoc);
-                if (!persona) {
-                    showManualAlert();
-                    return;
-                }
-
-                autocompletando = true;
-                try {
-                    setValue('nombres', persona.nombres);
-                    setValue('apellidos', persona.apellidos);
-                    setValue('fecha', persona.fecha);
-                    const sexoLleno = setValueSiExiste('sexo', persona.sexo);
-                    if (!sexoLleno) {
-                        mostrarAvisoSexo(motivoSexo || 'la opción de sexo no existe en el formulario');
-                    }
-                } finally {
-                    autocompletando = false;
-                }
-            } catch (e) {
-                showManualAlert();
-            } finally {
-                running = false;
-            }
-        }
-
-        // Los eventos se escuchan en el documento (fase de captura) y se filtran por campo,
-        // así funciona aunque GESI cree o reemplace los campos después de cargar la página.
-        let t = null;
-        const schedule = () => {
-            clearTimeout(t);
-            t = setTimeout(tryAutofill, 2500);
-        };
-        ['blur', 'change', 'keyup'].forEach((ev) => {
-            document.addEventListener(ev, (e) => {
-                if (!e.target) return;
-                if (e.target.id === IDS.cedula) schedule();
-                // Cambiar el tipo de documento con la cédula ya escrita: volver a consultar
-                else if (e.target.id === IDS.tipo_doc && ev === 'change') schedule();
-                // Si la persona corrige el sexo a mano, el aviso ya no hace falta
-                else if (e.target.id === IDS.sexo && ev === 'change' && !autocompletando) quitarAvisoSexo();
-            }, true);
-        });
-    })(); // fin autocompletarPorCedula
+    })(); // fin comprobadorDocumentos
 
     // ════════════════════════════════════════════════════════════════════
     // BLOQUE 5 — AVISO: EL TEMA NO ES OBLIGATORIO EN LAS LÍNEAS OPERATIVAS 5 Y 6
-    // Si la línea operativa es la 5 o la 6 y el Tema está vacío, se avisa (debajo de la línea operativa) que puede quedar sin diligenciar
     // ════════════════════════════════════════════════════════════════════
     (function avisoTemaOpcional() {
 
-        // Pares línea operativa → tema. Para otro bloque de sesión con los mismos campos, basta agregar un par.
+        const IDS_OBJ = (typeof IDS !== 'undefined') ? IDS : {};
         const PARES = [
-            { linea: IDS.linea_operativa, tema: IDS.tema },
-        ];
+            { linea: IDS_OBJ.linea_operativa || 'valorControl19001', tema: IDS_OBJ.tema || 'valorControl19003' },
+        ].filter(p => p.linea && p.tema);
+
         const LINEAS_SIN_TEMA = [5, 6];
         const CLASE_AVISO = 'aviso-tema-opcional';
 
-        // Número de línea según el texto de la opción elegida ("5 - ...", "Línea 5", "Línea operativa 5"...)
         function numeroLinea(campo) {
             if (!campo) return null;
             let texto = campo.value;
@@ -843,6 +559,7 @@
             PARES.forEach(({ linea, tema }) => {
                 const campoLinea = document.getElementById(linea);
                 const campoTema = document.getElementById(tema);
+                if (!campoLinea) return;
                 const n = numeroLinea(campoLinea);
                 const temaVacio = !!campoTema && String(campoTema.value ?? '').trim() === '';
                 const avisos = document.querySelectorAll('.' + CLASE_AVISO + '[data-tema="' + tema + '"]');
@@ -863,12 +580,10 @@
                 div.textContent = texto;
                 Object.assign(div.style, { color: '#0d47a1', background: '#e3f2fd', padding: '6px',
                     marginTop: '4px', border: '1px solid #90caf9', borderRadius: '4px', fontSize: '12px' });
-                campoLinea.parentNode.appendChild(div); // debajo de la línea operativa
+                campoLinea.parentNode.appendChild(div);
             });
         }
 
-        // Al instante cuando se cambia la línea o el tema, y una revisión periódica liviana por si GESI
-        // cambia los valores sin disparar eventos o vuelve a dibujar el formulario.
         const IDS_OBSERVADOS = PARES.flatMap((p) => [p.linea, p.tema]);
         ['change', 'input', 'keyup'].forEach((ev) => {
             document.addEventListener(ev, (e) => {
@@ -878,5 +593,119 @@
         setInterval(evaluar, 700);
         evaluar();
     })(); // fin avisoTemaOpcional
+
+    // ════════════════════════════════════════════════════════════════════
+    // BLOQUE 6 — VALIDACIONES NOMBRES Y NÚMERO DE DOCUMENTO
+    // ════════════════════════════════════════════════════════════════════
+    (function addValidations() {
+        const $  = s => document.querySelector(s);
+        const $$ = s => document.querySelectorAll(s);
+
+        const NAME_SELECTORS = ['#valorControl19129', '#valorControl19130'];
+        const DOC_SELECTOR = '#valorControl19132';
+        const TIPO_DOC_SELECTOR = '#valorControl19131';
+        const nameSanitizeRegex = /[^\p{L}\s'-]/gu;
+
+        function attachNameFilters(selector) {
+            Array.from($$(selector)).forEach(input => {
+                if (!input) return;
+                input.addEventListener('input', () => {
+                    const old = input.value, cleaned = old.replace(nameSanitizeRegex, '');
+                    if (old !== cleaned) {
+                        input.value = cleaned;
+                        input.style.border = '2px solid #e6a0a0';
+                        input.style.background = '#fff5f5';
+                        clearTimeout(input._nameValidTimer);
+                        input._nameValidTimer = setTimeout(() => {
+                            input.style.border = '';
+                            input.style.background = '';
+                        }, 1200);
+                    }
+                });
+                input.addEventListener('keypress', ev => {
+                    const ch = ev.key;
+                    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+                    if (ch.length === 1 && !ch.match(/[\p{L}\s'-]/u)) ev.preventDefault();
+                });
+                input.addEventListener('paste', ev => {
+                    ev.preventDefault();
+                    const text = (ev.clipboardData || window.clipboardData).getData('text') || '';
+                    const cleaned = text.replace(nameSanitizeRegex, '');
+                    input.setRangeText(cleaned, input.selectionStart || 0, input.selectionEnd || 0, 'end');
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                });
+            });
+        }
+
+        function attachDocFilter(selector, tipoDocSelector) {
+            const input = $(selector);
+            if (!input) return;
+
+            const esAlfanumerico = () => {
+                const tipoDoc = $(tipoDocSelector);
+                return tipoDoc && ['65', '66'].includes(String(tipoDoc.value).trim());
+            };
+
+            input.addEventListener('input', () => {
+                const regex = esAlfanumerico() ? /[^\p{L}\p{N}]/gu : /[^\p{N}]/gu;
+                const old = input.value, cleaned = old.replace(regex, '');
+                if (old !== cleaned) input.value = cleaned;
+                input.style.border = '';
+                input.style.background = '';
+                const prev = input.parentNode ? input.parentNode.querySelector('.mensaje-doc') : null;
+                if (prev) prev.remove();
+            });
+
+            input.addEventListener('paste', ev => {
+                ev.preventDefault();
+                const regex = esAlfanumerico() ? /[^\p{L}\p{N}]/gu : /[^\p{N}]/gu;
+                const text = (ev.clipboardData || window.clipboardData).getData('text') || '';
+                const cleaned = text.replace(regex, '');
+                input.setRangeText(cleaned, input.selectionStart || 0, input.selectionEnd || 0, 'end');
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            });
+
+            input.addEventListener('blur', () => {
+                const val = (input.value || '').trim();
+                const esAlfa = esAlfanumerico();
+                const min = 6, max = esAlfa ? 11 : 10;
+                const prev = input.parentNode ? input.parentNode.querySelector('.mensaje-doc') : null;
+                if (prev) prev.remove();
+                if (val.length === 0) return;
+                if (val.length < min || val.length > max) {
+                    input.style.border = '2px solid red';
+                    input.style.background = '#fff0f0';
+                    const div = document.createElement('div');
+                    div.className = 'mensaje-doc';
+                    div.textContent = `⚠ El documento debe tener entre ${min} y ${max} ${esAlfa ? 'caracteres' : 'números'} (actual: ${val.length}).`;
+                    Object.assign(div.style, {
+                        color: '#b30000',
+                        background: '#ffe6e6',
+                        padding: '6px',
+                        marginTop: '4px',
+                        border: '1px solid #ff9999',
+                        borderRadius: '4px',
+                        fontSize: '12px'
+                    });
+                    if (input.parentNode) input.parentNode.appendChild(div);
+                }
+            });
+
+            const tipoDoc = $(tipoDocSelector);
+            if (tipoDoc) {
+                tipoDoc.addEventListener('change', () => {
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                });
+            }
+        }
+
+        function start() {
+            NAME_SELECTORS.forEach(selector => attachNameFilters(selector));
+            attachDocFilter(DOC_SELECTOR, TIPO_DOC_SELECTOR);
+        }
+
+        if (document.readyState === 'complete') start();
+        else window.addEventListener('load', start);
+    })();
 
 })();
