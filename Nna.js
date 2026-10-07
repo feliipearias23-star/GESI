@@ -1,20 +1,14 @@
 // ==UserScript==
-// @name        NNA
-// @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
-// @version      3.12
-// @description  Automatización NNAT
+// @name         UTIS - Acciones NNAT + Acudiente + Escolar + Síntomas + Condiciones Laborales + Decálogo
+// @namespace    UTIS_GESI
+// @version      4.3
+// @description  Automatización NNAT + Acudiente + Tipo de Intervención + Información Escolar + Síntomas + Condiciones Laborales + Decálogo de Salud (v4.3: el último cambio manual SIEMPRE prevalece también al guardar y al recargar la ficha (valores ya existentes no se sobrescriben, congelación de autocompletado durante el guardado, detección de cambios delegada y consolidada); v4.2: detección de Seguimiento al efecto más robusta (espacios raros, texto Select2) + diagnóstico en consola; v4.1: Decálogo: Compromiso y Cumplimiento se marcan ambos en "No aplica"; v4.0: "5- Seguimiento al efecto" se detecta por valor O por texto de la opción, sin regla de edades a ninguna edad (hasta 17 años y 364 días); v3.9: el último cambio manual SIEMPRE prevalece y es el que se guarda; v3.8: Tipo de Intervención = 105 sin regla de edades; v3.7: Lactante ligada a sexo=Mujer; Institución sin obligatoriedad + buscador por nombre)
 // @match        https://gesiapps.saludcapital.gov.co/*
 // @grant        none
 // ==/UserScript==
 
 (function () {
     'use strict';
-
-    // ============================================================
-    // GUARD DE INSTANCIA ÚNICA (evita duplicados por recargas AJAX)
-    // ============================================================
-    if (window.__nnatUtisLoaded) return;
-    window.__nnatUtisLoaded = true;
 
     // ============================================================
     // IDS PRINCIPALES
@@ -55,6 +49,11 @@
         actividadesRecreativas: 'valorControl21822', queActividades: 'valorControl21823'
     };
 
+    // ============================================================
+    // DECÁLOGO DE SALUD
+    // Compromiso ítem 1 = valorControl21878, cumplimiento ítem 1 = valorControl21879
+    // Cada siguiente ítem aumenta de 3 en 3
+    // ============================================================
     const DECALOGO = [
         { numero: 1, nombre: 'Disminuir la exposición a contaminación ambiental', compromiso: 'valorControl21878', cumplimiento: 'valorControl21879' },
         { numero: 2, nombre: 'Consumir verduras o frutas todos los días', compromiso: 'valorControl21881', cumplimiento: 'valorControl21882' },
@@ -75,13 +74,18 @@
         ETNIA: '84', CATEGORIA_DISCAPACIDAD: '3822',
         ESTADO_CIVIL_MENOR_14: '78', ESTADO_CIVIL_MAYOR_14: '73',
         TIPO_INTERVENCION_MENOR_14: '102', TIPO_INTERVENCION_MAYOR_14: '103',
+        // "5- Seguimiento al efecto" → sin regla de edades (se detecta por valor O por texto)
+        TIPO_INTERVENCION_SEGUIMIENTO: '105',
+        TEXTO_SEGUIMIENTO_EFECTO: 'seguimiento al efecto',
         ESTUDIA_SI: '958', ESTUDIA_NO: '959',
         ACTIVIDADES_SI: '958', ACTIVIDADES_NO: '959',
         ETNIA_ACUDIENTE: '84', POBLACION_INCLUSION: '4048',
         ACCIDENTE_TRABAJO: '4565',
         SINTOMAS: '959', CONDICIONES_LABORALES: '959',
         SEXO_MUJER: '68', SEXO_HOMBRE: '67',
-        COMPROMISO_NO: '959', CUMPLIMIENTO_NO_APLICA: '960'
+        // v4.1: Compromiso y Cumplimiento del Decálogo usan el mismo valor "No aplica"
+        DECALOGO_NO_APLICA: '960',
+        TEXTO_NO_APLICA: 'no aplica'
     };
 
     const TIPO_DOC = { RC: '60', TI: '61', MENOR_SIN_ID: '66', PPT: '2482' };
@@ -125,39 +129,84 @@
     // ============================================================
     // ESTADO / UTILIDADES DE CONTROL
     // ============================================================
+    // Campos que el usuario ya modificó manualmente (el script no los vuelve a tocar)
     const modificadoManualmente = new WeakMap();
     let autoAsignando = false;
+    // v4.3: mientras se guarda, el script no escribe nada (así no pisa lo que el usuario eligió)
+    let congelado = false;
     let validacionIntervenciones = true;
     let validacionEscolar = true;
 
     const getElemento = (id) => document.getElementById(id);
 
-    // Color de resaltado para campos auto-asignados por el script (azul cielo)
-    const COLOR_AUTO = '#64b4ff';
+    // Normaliza texto (sin tildes, minúsculas, espacios colapsados incluyendo
+    // espacios no separables) para comparar etiquetas de opciones
+    const normalizarTexto = (texto) =>
+        (texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').toLowerCase().trim();
 
-    // Marca un campo como "tocado por el usuario" para no volver a sobrescribirlo
-    const marcarComoManual = (elemento) => {
-        if (!elemento || modificadoManualmente.has(elemento)) return;
+    // v4.2: textos "visibles" de un select: opción seleccionada y, si existe,
+    // el contenedor Select2 que muestra el valor al usuario.
+    const textosVisiblesSelect = (select) => [
+        select.options?.[select.selectedIndex]?.text,
+        select.selectedOptions?.[0]?.textContent,
+        document.getElementById('select2-' + select.id + '-container')?.textContent
+    ];
 
-        elemento.addEventListener('change', () => {
-            if (autoAsignando) return;
-            modificadoManualmente.set(elemento, true);
-            elemento.setAttribute('data-utis-ultimo-valor', elemento.value);
-            // v3.10: ya no se limpia el color azul cielo al marcar el campo como manual
-        });
+    // v4.0/v4.2: ÚNICA fuente de verdad para saber si el Tipo de Intervención es
+    // "5- Seguimiento al efecto" (sin regla de edades: aplica a cualquier edad,
+    // incluso 17 años y 364 días). Se detecta por VALOR o por TEXTO (de la opción
+    // o de lo que muestra el widget). La usan el autocompletado y la validación.
+    const intervencionSinReglaEdad = () => {
+        const select = getElemento(IDS.tipoIntervencion);
+        if (!select) return false;
+
+        if (select.value === VALORES.TIPO_INTERVENCION_SEGUIMIENTO) return true;
+
+        return textosVisiblesSelect(select).some(
+            (t) => normalizarTexto(t).includes(VALORES.TEXTO_SEGUIMIENTO_EFECTO)
+        );
     };
 
-    const respetarValorExistente = (elemento) => {
-        if (!elemento || modificadoManualmente.has(elemento)) return;
-        if (elemento.value) {
-            modificadoManualmente.set(elemento, true);
-            elemento.setAttribute('data-utis-ultimo-valor', elemento.value);
+    // Registra el cambio manual del usuario sobre un campo
+    const registrarCambioManual = (elemento) => {
+        modificadoManualmente.set(elemento, true);
+        elemento.setAttribute('data-utis-ultimo-valor', elemento.value);
+        elemento.style.backgroundColor = '';
+    };
+
+    // v4.3: un campo está "vacío" si no tiene valor o muestra el placeholder "Seleccione"
+    const estaVacioOPlaceholder = (elemento) => {
+        const valor = elemento.value;
+        if (valor === '' || valor === '0' || valor === '-1') return true;
+        return normalizarTexto(elemento.options?.[elemento.selectedIndex]?.text).startsWith('seleccione');
+    };
+
+    // Detección por VALOR, independiente de eventos (funciona con Select2/jQuery).
+    // El script guarda en data-utis-ultimo-valor lo último que él mismo escribió.
+    //  - Si el valor actual es distinto → lo cambió el usuario → manual.
+    //  - v4.3: si el script nunca escribió el campo y YA trae un valor (ficha guardada
+    //    que se recarga, o algo elegido antes de que corriera el script) → también es
+    //    una decisión previa que se respeta y NO se sobrescribe con el valor por defecto.
+    const esCambioManual = (elemento) => {
+        if (modificadoManualmente.get(elemento)) return true;
+
+        const ultimoEscrito = elemento.getAttribute('data-utis-ultimo-valor');
+        if (ultimoEscrito !== null) {
+            if (elemento.value === ultimoEscrito) return false;
+            registrarCambioManual(elemento);
+            return true;
         }
+
+        if (!estaVacioOPlaceholder(elemento)) {
+            registrarCambioManual(elemento);
+            return true;
+        }
+        return false;
     };
 
-    // Asigna "valor" a "elemento" si aún no fue modificado manualmente
+    // Asigna "valor" por defecto si el usuario NO ha modificado el campo.
     const autoAsignar = (elemento, valor) => {
-        if (!elemento || modificadoManualmente.get(elemento)) return;
+        if (!elemento || congelado || esCambioManual(elemento)) return;
 
         // Evita trabajo y disparo de evento si el valor ya es el correcto
         if (elemento.value === valor) {
@@ -177,46 +226,16 @@
 
         elemento.setAttribute('data-utis-ultimo-valor', valor);
         elemento.dispatchEvent(new Event('change', { bubbles: true }));
-        elemento.style.backgroundColor = COLOR_AUTO;
+        elemento.style.backgroundColor = '#d4edda';
         autoAsignando = false;
     };
 
-    // Igual que autoAsignar, pero respeta el último valor manual dentro de la misma ficha
-    const autoAsignarConValorAnterior = (elemento, valorPorDefecto) => {
-        if (!elemento) return;
-
-        const valorAnterior = elemento.getAttribute('data-utis-ultimo-valor');
-
-        if (modificadoManualmente.get(elemento)) {
-            if (elemento.value !== valorAnterior) {
-                elemento.setAttribute('data-utis-ultimo-valor', elemento.value);
-            }
-            return;
-        }
-
-        // Evita trabajo y disparo de evento si el valor ya es el correcto
-        if (elemento.value === valorPorDefecto) {
-            elemento.setAttribute('data-utis-ultimo-valor', valorPorDefecto);
-            return;
-        }
-
-        autoAsignando = true;
-        const opcion = elemento.querySelector(`option[value="${valorPorDefecto}"]`);
-        elemento.value = valorPorDefecto;
-
-        const select2 = document.getElementById('select2-' + elemento.id + '-container');
-        if (select2 && opcion) {
-            select2.textContent = opcion.text;
-            select2.setAttribute('title', opcion.text);
-        }
-
-        elemento.setAttribute('data-utis-ultimo-valor', valorPorDefecto);
-        elemento.dispatchEvent(new Event('change', { bubbles: true }));
-        elemento.style.backgroundColor = COLOR_AUTO;
-        autoAsignando = false;
-    };
-
-
+    // ------------------------------------------------------------
+    // Devuelve el control "visible" asociado a un elemento. Para campos
+    // normales es el propio elemento; para el campo Institución (que tiene
+    // un buscador propio superpuesto) es el input de búsqueda, porque el
+    // <select> original queda oculto dentro del contenedor del buscador.
+    // ------------------------------------------------------------
     const obtenerControlVisual = (elemento) => {
         if (!elemento || !elemento.parentNode) return elemento;
         const input = elemento.parentNode.querySelector(':scope > .utis-buscador-institucion-input');
@@ -226,13 +245,20 @@
     const bloquearCampo = (elemento) => {
         if (!elemento) return;
         elemento.disabled = true;
-        elemento.value = '';
         limpiarMensajesPorCampo(elemento);
 
-        // v3.12: se marca autoAsignando para que este dispatch no cuente como cambio manual
-        autoAsignando = true;
-        elemento.dispatchEvent(new Event('change', { bubbles: true }));
-        autoAsignando = false;
+        // v3.9: solo limpia/notifica si realmente había un valor, y bajo la guarda
+        // autoAsignando, para evitar recursión infinita de procesarBloque.
+        if (elemento.value !== '') {
+            autoAsignando = true;
+            elemento.value = '';
+            elemento.dispatchEvent(new Event('change', { bubbles: true }));
+            autoAsignando = false;
+        }
+
+        // Un campo bloqueado se reinicia: al desbloquearse vuelve a su valor por defecto
+        modificadoManualmente.delete(elemento);
+        elemento.removeAttribute('data-utis-ultimo-valor');
 
         const visual = obtenerControlVisual(elemento);
         visual.style.backgroundColor = '#e9ecef';
@@ -293,7 +319,7 @@
         const mapa = cascada[sexo.value];
         if (!mapa) return;
 
-        sexo.style.backgroundColor = COLOR_AUTO;
+        sexo.style.backgroundColor = '#d4edda';
         autoAsignar(getElemento(IDS.genero), mapa.genero);
         autoAsignar(getElemento(IDS.orientacionSexual), mapa.orientacion);
         autoAsignar(getElemento(IDS.identidadGenero), mapa.identidad);
@@ -308,7 +334,6 @@
         const edad = parseInt(edadElemento.value, 10);
         if (isNaN(edad)) return;
 
-        respetarValorExistente(estadoCivil);
         autoAsignar(estadoCivil, edad < 14 ? VALORES.ESTADO_CIVIL_MENOR_14 : VALORES.ESTADO_CIVIL_MAYOR_14);
     };
 
@@ -317,6 +342,9 @@
         const edadElemento = getElemento(IDS.edad);
         const tipoIntervencion = getElemento(IDS.tipoIntervencion);
         if (!tipoDoc || !edadElemento || !tipoIntervencion || !Object.values(TIPO_DOC).includes(tipoDoc.value)) return;
+
+        // "5- Seguimiento al efecto" no tiene regla de edades → no se sobrescribe
+        if (intervencionSinReglaEdad()) return;
 
         const edad = parseInt(edadElemento.value, 10);
         if (isNaN(edad)) return;
@@ -339,9 +367,7 @@
     };
 
     const aplicarAccidenteTrabajo = () => {
-        const campo = getElemento(IDS.accidenteTrabajo);
-        respetarValorExistente(campo);
-        autoAsignarConValorAnterior(campo, VALORES.ACCIDENTE_TRABAJO);
+        autoAsignar(getElemento(IDS.accidenteTrabajo), VALORES.ACCIDENTE_TRABAJO);
     };
 
     const CAMPOS_SINTOMAS = [
@@ -351,57 +377,60 @@
     ];
 
     const aplicarSintomas = () => {
-        CAMPOS_SINTOMAS.forEach((id) => {
-            const campo = getElemento(id);
-            respetarValorExistente(campo);
-            autoAsignarConValorAnterior(campo, VALORES.SINTOMAS);
-        });
+        CAMPOS_SINTOMAS.forEach((id) => autoAsignar(getElemento(id), VALORES.SINTOMAS));
     };
 
+    // NOTA v3.7: nnaLactante se sacó de esta lista genérica porque ahora
+    // depende del sexo, igual que nnaGestante (ver aplicarCondicionesLaborales).
     const CAMPOS_CONDICIONES_LABORALES = [
         IDS.motivoServicioMedico, IDS.trabajoAfectaSalud, IDS.lavadoManos,
         IDS.cambiosTemperatura, IDS.evitarDanos
     ];
 
-    const aplicarCondicionesLaborales = () => {
-        CAMPOS_CONDICIONES_LABORALES.forEach((id) => {
-            const campo = getElemento(id);
-            respetarValorExistente(campo);
-            autoAsignarConValorAnterior(campo, VALORES.CONDICIONES_LABORALES);
-        });
+    // Habilita un campo dependiente de sexo=Mujer y le pone su valor por defecto
+    // (sin pintar de verde si el usuario ya lo modificó manualmente).
+    const habilitarCampoSoloMujer = (elemento) => {
+        if (!elemento) return;
+        desbloquearCampo(elemento);
+        autoAsignar(elemento, VALORES.CONDICIONES_LABORALES);
+        if (!modificadoManualmente.get(elemento)) elemento.style.backgroundColor = '#d4edda';
+    };
 
+    const aplicarCondicionesLaborales = () => {
+        CAMPOS_CONDICIONES_LABORALES.forEach((id) => autoAsignar(getElemento(id), VALORES.CONDICIONES_LABORALES));
+
+        // v3.7: Niña o adolescente trabajadora gestante Y lactante: ambas
+        // solo aplican/se habilitan si sexo = Mujer. Si sexo = Hombre, las
+        // dos quedan bloqueadas y sin valor (misma lógica para las dos).
         const sexo = getElemento(IDS.sexo);
-        const nnaGestante = getElemento(IDS.nnaGestante);
-        const nnaLactante = getElemento(IDS.nnaLactante);
+        const camposSoloMujer = [getElemento(IDS.nnaGestante), getElemento(IDS.nnaLactante)];
 
         if (sexo && sexo.value === VALORES.SEXO_MUJER) {
-            desbloquearCampo(nnaGestante);
-            respetarValorExistente(nnaGestante);
-            autoAsignarConValorAnterior(nnaGestante, VALORES.CONDICIONES_LABORALES);
-            if (nnaGestante) nnaGestante.style.backgroundColor = COLOR_AUTO;
-
-            desbloquearCampo(nnaLactante);
-            respetarValorExistente(nnaLactante);
-            autoAsignarConValorAnterior(nnaLactante, VALORES.CONDICIONES_LABORALES);
-            if (nnaLactante) nnaLactante.style.backgroundColor = COLOR_AUTO;
+            camposSoloMujer.forEach(habilitarCampoSoloMujer);
         } else {
-            bloquearCampo(nnaGestante);
-            bloquearCampo(nnaLactante);
+            camposSoloMujer.forEach(bloquearCampo);
         }
+    };
+
+    // v4.1: Compromiso y Cumplimiento se marcan AMBOS en "No aplica". Se busca la
+    // opción por TEXTO en cada select (por si el value de Compromiso difiere del
+    // de Cumplimiento) y, si no se encuentra, se usa el value 960 por defecto.
+    const valorNoAplica = (elemento) => {
+        const opcion = Array.from(elemento?.options || []).find(
+            (o) => normalizarTexto(o.text).includes(VALORES.TEXTO_NO_APLICA)
+        );
+        return opcion ? opcion.value : VALORES.DECALOGO_NO_APLICA;
     };
 
     const aplicarDecalogo = () => {
         DECALOGO.forEach((item) => {
-            const compromiso = getElemento(item.compromiso);
-            const cumplimiento = getElemento(item.cumplimiento);
-
-            respetarValorExistente(compromiso);
-            respetarValorExistente(cumplimiento);
-
-            autoAsignarConValorAnterior(compromiso, VALORES.COMPROMISO_NO);
-            autoAsignarConValorAnterior(cumplimiento, VALORES.CUMPLIMIENTO_NO_APLICA);
+            [item.compromiso, item.cumplimiento].forEach((id) => {
+                const campo = getElemento(id);
+                if (campo) autoAsignar(campo, valorNoAplica(campo));
+            });
         });
     };
+
     // ============================================================
     // VALIDACIONES (bloquean el guardado si fallan)
     // ============================================================
@@ -425,7 +454,7 @@
 
         const mensaje = document.createElement('div');
         mensaje.className = 'utis-mensaje-validacion-edad-doc';
-        mensaje.textContent = `⚠ Con ${edad} años, el tipo de documento no debería ser "${regla.nombre}".`;
+        mensaje.textContent = `⚠ Con edadaños,eltipodedocumentonodeberíaser"{regla.nombre}".`;
         Object.assign(mensaje.style, {
             color: '#b30000', background: '#ffe6e6', padding: '6px', marginTop: '4px',
             border: '1px solid #ff9999', borderRadius: '4px', fontSize: '12px'
@@ -438,19 +467,21 @@
         const tipoIntervencion = getElemento(IDS.tipoIntervencion);
         if (!edadElemento || !tipoIntervencion) return;
 
+        // Limpia estado visual previo y asume válido; solo se marca inválido
+        // más abajo si realmente hay inconsistencia edad / tipo de intervención.
         tipoIntervencion.style.border = '';
         edadElemento.style.border = '';
         tipoIntervencion.parentNode?.querySelector('.utis-mensaje-validacion-intervencion')?.remove();
+        validacionIntervenciones = true;
+
+        // "5- Seguimiento al efecto" no tiene regla de edades → siempre válido
+        if (intervencionSinReglaEdad()) return;
 
         const edad = parseInt(edadElemento.value, 10);
         if (isNaN(edad) || !tipoIntervencion.value) return;
 
         const esperado = edad < 14 ? VALORES.TIPO_INTERVENCION_MENOR_14 : VALORES.TIPO_INTERVENCION_MAYOR_14;
-
-        if (tipoIntervencion.value === esperado) {
-            validacionIntervenciones = true;
-            return;
-        }
+        if (tipoIntervencion.value === esperado) return;
 
         tipoIntervencion.style.border = '2px solid red';
         edadElemento.style.border = '2px solid red';
@@ -458,7 +489,7 @@
         const etiqueta = edad < 14 ? 'Niños y Niñas' : 'Adolescentes';
         const mensaje = document.createElement('div');
         mensaje.className = 'utis-mensaje-validacion-intervencion';
-        mensaje.textContent = `⚠ Con ${edad} años, el Tipo de Intervención debe ser "${etiqueta}". Por favor corrija antes de guardar.`;
+        mensaje.textContent = `⚠ Con edadaños,elTipodeIntervencióndebeser"{etiqueta}". Por favor corrija antes de guardar.`;
         Object.assign(mensaje.style, {
             color: '#b30000', background: '#ffe6e6', padding: '8px', marginTop: '4px',
             border: '1px solid #ff9999', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold'
@@ -481,7 +512,7 @@
             desbloquearCampo(institucion);
             desbloquearCampo(curso);
             bloquearCampo(razonAbandono);
-
+            // v3.7: Institución/jardín NO es obligatoria; "En qué curso está" SÍ.
             if (!curso?.value) mostrarErrorEscolar(curso, 'Debe diligenciar en qué curso está.');
         } else if (actualmenteEstudia.value === VALORES.ESTUDIA_NO) {
             bloquearCampo(institucion);
@@ -528,6 +559,14 @@
         }
     };
 
+    // ============================================================
+    // BUSCADOR POR NOMBRE PARA EL CAMPO INSTITUCIÓN (v3.7)
+    // El <select> original de Institución solo permite buscar saltando a
+    // la opción cuyo TEXTO empieza por lo que se teclea (comportamiento
+    // nativo del navegador) y a veces no trae el código exacto. Este
+    // bloque superpone un input de texto que filtra las opciones por
+    // cualquier parte del nombre, sin depender de jQuery/Select2.
+    // ============================================================
     const inicializarBuscadorInstitucion = () => {
         const select = getElemento(IDS_ESCOLAR.institucion);
         if (!select || select.tagName !== 'SELECT') return;
@@ -631,24 +670,6 @@
     // ============================================================
     // ORQUESTADOR PRINCIPAL
     // ============================================================
-    const CAMPOS_NNAT_MANUALES = [
-        IDS.genero, IDS.orientacionSexual, IDS.identidadGenero, IDS.estadoCivil, IDS.etnia,
-        IDS.categoriaDiscapacidad, IDS.poblacionDiferencial, IDS.nacionalidad, IDS.tipoIntervencion
-    ];
-
-    const CAMPOS_LABORALES_MANUALES = [
-        IDS.motivoServicioMedico, IDS.trabajoAfectaSalud, IDS.lavadoManos,
-        IDS.cambiosTemperatura, IDS.evitarDanos, IDS.nnaGestante, IDS.nnaLactante
-    ];
-
-    const CAMPOS_ACUDIENTE_MANUALES = [
-        IDS_ACUDIENTE.nacionalidad, IDS_ACUDIENTE.etnia, IDS_ACUDIENTE.poblacionInclusionOficio
-    ];
-
-    const CAMPOS_ESCOLARES_MANUALES = [
-        IDS_ESCOLAR.razonAbandono, IDS_ESCOLAR.institucion, IDS_ESCOLAR.curso, IDS_ESCOLAR.queActividades
-    ];
-
     const procesarBloque = () => {
         aplicarCascadaSexo();
         aplicarEstadoCivil();
@@ -662,57 +683,68 @@
         validarEdadDocumento();
         validarEdadTipoIntervencion();
 
-        CAMPOS_NNAT_MANUALES.forEach((id) => marcarComoManual(getElemento(id)));
-        marcarComoManual(getElemento(IDS.accidenteTrabajo));
-        CAMPOS_SINTOMAS.forEach((id) => marcarComoManual(getElemento(id)));
-        CAMPOS_LABORALES_MANUALES.forEach((id) => marcarComoManual(getElemento(id)));
-
         aplicarReglasAcudiente();
-        CAMPOS_ACUDIENTE_MANUALES.forEach((id) => marcarComoManual(getElemento(id)));
 
         inicializarBuscadorInstitucion();
         validarInformacionEscolar();
-        CAMPOS_ESCOLARES_MANUALES.forEach((id) => marcarComoManual(getElemento(id)));
-
-        DECALOGO.forEach((item) => {
-            marcarComoManual(getElemento(item.compromiso));
-            marcarComoManual(getElemento(item.cumplimiento));
-        });
     };
 
     // ============================================================
     // BLOQUEO DE GUARDADO SI HAY ERRORES DE VALIDACIÓN
     // ============================================================
-    const bloquearGuardoSiHayError = () => {
-        document.querySelectorAll(
-            'button[type="submit"], button[onclick*="guardar"], button[onclick*="Guardar"], .btn-guardar, [data-action="save"]'
-        ).forEach((boton) => {
-            boton.addEventListener('click', (evento) => {
-                validarEdadTipoIntervencion();
-                actualizarEstadoValidacionEscolar();
+    const SELECTOR_GUARDAR =
+        'button[type="submit"], button[onclick*="guardar"], button[onclick*="Guardar"], .btn-guardar, [data-action="save"]';
 
-                if (validacionIntervenciones && validacionEscolar) return;
-
-                evento.preventDefault();
-                evento.stopPropagation();
-
-                let textoAlerta = '❌ No puede guardar. ';
-                if (!validacionIntervenciones) textoAlerta += 'Corrija la inconsistencia entre Edad y Tipo de Intervención. ';
-                if (!validacionEscolar) textoAlerta += 'Complete o corrija los campos de Información Escolar.';
-
-                const alerta = document.createElement('div');
-                alerta.textContent = textoAlerta;
-                Object.assign(alerta.style, {
-                    position: 'fixed', top: '20px', right: '20px', background: '#ffe6e6', color: '#b30000',
-                    padding: '12px 16px', borderRadius: '4px', border: '2px solid #ff9999', fontSize: '14px',
-                    fontWeight: 'bold', zIndex: '9999', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', maxWidth: '400px'
-                });
-                document.body.appendChild(alerta);
-                setTimeout(() => alerta.remove(), 5000);
-            }, true);
+    // v4.3: al guardar, primero se "consolida" lo que el usuario cambió (por si vino de
+    // un widget que no disparó 'change') y se congela el autocompletado unos segundos,
+    // para que nada pise el último cambio mientras se envía el formulario.
+    const congelarPorGuardado = () => {
+        document.querySelectorAll('[data-utis-ultimo-valor]').forEach((el) => {
+            if (el.value !== el.getAttribute('data-utis-ultimo-valor')) registrarCambioManual(el);
         });
+        congelado = true;
+        setTimeout(() => { congelado = false; }, 4000);
     };
 
+    // Listener delegado: sigue funcionando aunque GESI reconstruya los botones.
+    const bloquearGuardoSiHayError = () => {
+        document.addEventListener('click', (evento) => {
+            if (!evento.target?.closest?.(SELECTOR_GUARDAR)) return;
+
+            congelarPorGuardado();
+            validarEdadTipoIntervencion();
+            actualizarEstadoValidacionEscolar();
+
+            if (validacionIntervenciones && validacionEscolar) return;
+
+            congelado = false; // el guardado no procede: se reanuda el autocompletado
+            evento.preventDefault();
+            evento.stopPropagation();
+
+            let textoAlerta = '❌ No puede guardar. ';
+            if (!validacionIntervenciones) textoAlerta += 'Corrija la inconsistencia entre Edad y Tipo de Intervención. ';
+            if (!validacionEscolar) textoAlerta += 'Complete o corrija los campos de Información Escolar.';
+
+            const alerta = document.createElement('div');
+            alerta.textContent = textoAlerta;
+            Object.assign(alerta.style, {
+                position: 'fixed', top: '20px', right: '20px', background: '#ffe6e6', color: '#b30000',
+                padding: '12px 16px', borderRadius: '4px', border: '2px solid #ff9999', fontSize: '14px',
+                fontWeight: 'bold', zIndex: '9999', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', maxWidth: '400px'
+            });
+            document.body.appendChild(alerta);
+            setTimeout(() => alerta.remove(), 5000);
+        }, true);
+    };
+
+    // ============================================================
+    // DISPARADORES: evento change delegado (soporta reconstrucción SPA del DOM)
+    // NOTA DE RENDIMIENTO (v3.6): tipoIntervencion y los campos del Decálogo
+    // se sacaron de esta lista porque son SALIDAS calculadas por el propio
+    // script. Tenerlos aquí causaba una cascada recursiva de reprocesamiento.
+    // (El polling de respaldo sí monitorea tipoIntervencion, por lo que un
+    // cambio manual a/desde "5- Seguimiento al efecto" se revalida en ≤500 ms.)
+    // ============================================================
     const IDS_DISPARADORES = [
         IDS.tipoDoc, IDS.sexo, IDS.edad,
         IDS_ACUDIENTE.tipoDoc,
@@ -721,10 +753,33 @@
     ];
 
     document.addEventListener('change', (evento) => {
-
+        // Ignora cambios disparados programáticamente por el propio script
+        // (autoAsignar / bloquearCampo), evitando recursión.
         if (autoAsignando) return;
-        if (IDS_DISPARADORES.includes(evento.target?.id)) procesarBloque();
+
+        const campo = evento.target;
+        // v4.3: único punto de registro de cambios manuales (delegado, cubre nodos
+        // reconstruidos o duplicados): si el script había escrito este campo y el
+        // usuario lo cambia, ese cambio queda como el vigente.
+        if (campo?.hasAttribute?.('data-utis-ultimo-valor')) registrarCambioManual(campo);
+
+        if (IDS_DISPARADORES.includes(campo?.id)) procesarBloque();
     }, true);
+
+    // ============================================================
+    // DIAGNÓSTICO (v4.2): escribe utisDiagnostico() en la consola del navegador
+    // para ver cómo está leyendo el Tipo de Intervención este script.
+    // ============================================================
+    window.utisDiagnostico = () => {
+        const nodos = Array.from(document.querySelectorAll(`[id="${IDS.tipoIntervencion}"]`));
+        console.log('[UTIS v4.3] nodos con el id de Tipo de Intervención:', nodos.length);
+        nodos.forEach((n, i) => console.log(`  #${i}`, {
+            value: n.value,
+            textos: textosVisiblesSelect(n),
+            esSeguimiento: n === getElemento(IDS.tipoIntervencion) ? intervencionSinReglaEdad() : '(no es el nodo que usa el script)'
+        }));
+    };
+    console.log('[UTIS] v4.3 cargado');
 
     // ============================================================
     // EJECUCIÓN INICIAL
@@ -751,18 +806,7 @@
 
     let ultimosValores = {};
 
-    // v3.12: se guarda la referencia del intervalo para poder detenerlo
-    // si el formulario NNAT desaparece del DOM (navegación SPA/AJAX de GESI).
-    const intervaloPolling = setInterval(() => {
-        // Si el campo ancla del formulario ya no existe, este bloque de
-        // ficha se descargó: detenemos el polling para no seguir corriendo
-        // en segundo plano ni acumular instancias con el tiempo.
-        if (!getElemento(IDS.tipoDoc)) {
-            clearInterval(intervaloPolling);
-            window.__nnatUtisLoaded = false; // permite que una futura carga del bloque vuelva a inicializar el script
-            return;
-        }
-
+    setInterval(() => {
         const valoresActuales = {};
         Object.entries(IDS_MONITOREADOS).forEach(([clave, id]) => {
             valoresActuales[clave] = getElemento(id)?.value;
