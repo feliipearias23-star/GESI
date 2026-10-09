@@ -308,36 +308,15 @@
         if ((r2.responseText || '').indexOf('No se encontr') !== -1) return null;
 
         const r3 = await gmRequest({ method: 'GET', url: BASE_COMPROBADOR + 'Resultados.aspx' });
-                               const doc = new DOMParser().parseFromString(r3.responseText || '', 'text/html');
+        const doc = new DOMParser().parseFromString(r3.responseText || '', 'text/html');
+        const r = parseTablasComprobador(doc)[0];
+        if (!r) return null;
 
-        const norm = (s) => (s || '')
-            .replace(/\u00A0/g, ' ')
-            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-            .replace(/\s+/g, ' ').trim().toLowerCase();
-
-        const celdasDe = (tr) => [...tr.children].filter(c => c.tagName === 'TD' || c.tagName === 'TH');
-
-        // Fila de encabezado: la que tiene una celda que diga exactamente "fecha nacimiento"
-        const trEnc = [...doc.querySelectorAll('tr')].find(tr =>
-            celdasDe(tr).some(c => norm(c.textContent) === 'fecha nacimiento'));
-        if (!trEnc) { console.log('[Comprobador] sin encabezado'); return null; }
-
-        // Siguiente fila con celdas = datos
-        let trDat = trEnc.nextElementSibling;
-        while (trDat && celdasDe(trDat).length === 0) trDat = trDat.nextElementSibling;
-        if (!trDat) { console.log('[Comprobador] sin fila de datos'); return null; }
-
-        const enc = celdasDe(trEnc).map(c => norm(c.textContent));
-        const val = celdasDe(trDat).map(c => (c.textContent || '').replace(/\u00A0/g, ' ').trim());
-        const col = (n) => val[enc.indexOf(norm(n))] || '';
-
-        const res = {
-            apellidos: unir(col('Primer Apellido'), col('Segundo Apellido')),
-            nombres: unir(col('Primer Nombre'), col('Segundo Nombre')),
-            fecha: col('Fecha Nacimiento'),
+        return {
+            apellidos: unir(r['Primer Apellido'], r['Segundo Apellido']),
+            nombres: unir(r['Primer Nombre'], r['Segundo Nombre']),
+            fecha: (r['Fecha Nacimiento'] || '').trim(),
         };
-        console.log('[Comprobador]', res);
-        return res;
     }
 
     async function consultarSupersalud(documento, codigoTipo) {
