@@ -373,9 +373,8 @@
             headers: { Accept: 'application/json' },
             timeout: 3000, // si está caído no bloquea al resto
         });
-        if (!r.status || r.status >= 500) throw new Error('Supersalud no disponible (status ' + r.status + ')');
+        if (typeof r.status === 'number' && (r.status === 0 || r.status >= 500)) throw new Error('Supersalud no disponible (status ' + r.status + ')');
         if (r.status < 200 || r.status >= 300) return null;
-
         let d;
         try { d = JSON.parse(r.responseText || ''); } catch (e) { return null; }
         if (!d || typeof d !== 'object') return null;
