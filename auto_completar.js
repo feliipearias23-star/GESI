@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AUTOCOMPLETAR POR CÉDULA (EDUCATIVO E INSTITUCIONAL)
 // @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
-// @version      1.4
-// @description  Búsqueda y autocompletado de personas por documento en Comprobador de Derechos y Supersalud (con asignación de género >= 14 años). Funciona aunque Supersalud esté caído.
+// @version      1.5
+// @description  Búsqueda y autocompletado de personas por documento en Comprobador de Derechos y Supersalud (con asignación de género >= 14 años)
 // @author       You
 // @match        https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
@@ -15,7 +15,6 @@
 (function() {
     'use strict';
 
-    const LOG = '[Autocompletar cédula]';
     const BASE_COMPROBADOR = 'https://appb.saludcapital.gov.co/comprobadordederechos/';
     const BASE_SUPERSALUD  = 'https://pqrdsuperargo.supersalud.gov.co/api/api/adres/';
 
@@ -69,7 +68,7 @@
     };
 
     const SEXO_SUPERSALUD_A_GESI = { 1: '67', 2: '68' };
-    const CLASE_AVISO = 'aviso-sexo-revisar';
+    const CLASE_AVISO_SEXO = 'aviso-sexo-revisar';
     let autocompletando = false;
 
     function setValue(clave, value) {
@@ -104,26 +103,16 @@
     }
 
     function gmRequest(opts) {
-    // En Tampermonkey: usa GM_xmlhttpRequest como siempre
-    if (typeof GM_xmlhttpRequest === 'function') {
-        return new Promise((resolve, reject) => {
-            GM_xmlhttpRequest(Object.assign({ timeout: 20000 }, opts, {
-                onload: resolve,
-                onerror: reject,
-                ontimeout: () => reject(new Error('timeout')),
-            }));
-        });
-    }
-    // Dentro de la app (1.0.45 o superior): la consulta la hace Python
-    const api = window.pywebview && window.pywebview.api;
-    if (!api || typeof api.cd_http_request !== 'function') {
-        return Promise.reject(new Error('puente de la app no disponible (¿app anterior a 1.0.45?)'));
-    }
-    return api.cd_http_request(Object.assign({ timeout: 20000 }, opts)).then((r) => {
-        if (!r || !r.ok) throw new Error((r && r.error) || 'error de red');
-        return r; // trae .status y .responseText, igual que GM_xmlhttpRequest
-    });
-}
+        if (typeof GM_xmlhttpRequest === 'function') {
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest(Object.assign({ timeout: 20000 }, opts, {
+                    onload: resolve,
+                    onerror: reject,
+                    ontimeout: () => reject(new Error('timeout')),
+                }));
+            });
+        }
+            // Dentro de la app (1.0.45 o superior): la consulta la hace Python
         const api = window.pywebview && window.pywebview.api;
         if (!api || typeof api.cd_http_request !== 'function') {
             return Promise.reject(new Error('puente de la app no disponible (¿app anterior a 1.0.45?)'));
@@ -138,29 +127,12 @@
         return partes.map((p) => String(p ?? '').trim()).filter(Boolean).join(' ');
     }
 
-    // Quita tildes, pasa a minúsculas y colapsa espacios (para comparar encabezados)
-    function norm(s) {
-        return String(s || '')
-            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-            .toLowerCase()
-            .replace(/\s+/g, ' ')
-            .trim();
-    }
-
-    // Recibe fechas ISO (yyyy-mm-dd...) o latinas (dd/mm/yyyy [hora]) y las deja
-    // en el formato que necesite el campo del formulario
-    function formatearFecha(valor) {
-        const s = String(valor || '').trim();
-        if (!s) return '';
-        let y, m, d;
-        const mIso = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-        const mLat = /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/.exec(s);
-        if (mIso) { y = mIso[1]; m = mIso[2]; d = mIso[3]; }
-        else if (mLat) { d = mLat[1].padStart(2, '0'); m = mLat[2].padStart(2, '0'); y = mLat[3]; }
-        else return s;
+    function formatearFechaISO(iso) {
+        const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || '').trim());
+        if (!m) return String(iso || '').trim();
         const el = getCampo('fecha');
-        if (el && el.type === 'date') return y + '-' + m + '-' + d;
-        return d + '/' + m + '/' + y;
+        if (el && el.type === 'date') return m[1] + '-' + m[2] + '-' + m[3];
+        return m[3] + '/' + m[2] + '/' + m[1];
     }
 
     function normalizarApellidos(s) {
@@ -232,16 +204,17 @@
         }
     }
 
-    function quitarAvisos() {
-        document.querySelectorAll('.' + CLASE_AVISO).forEach((a) => a.remove());
+    function quitarAvisoSexo() {
+        document.querySelectorAll('.' + CLASE_AVISO_SEXO).forEach((a) => a.remove());
     }
 
-    function mostrarAviso(clave, texto) {
-        const campo = getCampo(clave);
+    function mostrarAvisoSexo(motivo) {
+        quitarAvisoSexo();
+        const campo = getCampo('sexo');
         if (!campo || !campo.parentNode) return;
         const div = document.createElement('div');
-        div.className = CLASE_AVISO;
-        div.textContent = '⚠ ' + texto;
+        div.className = CLASE_AVISO_SEXO;
+        div.textContent = '⚠ No se pudo obtener el sexo automáticamente (' + motivo + '). Revíselo a mano: puede tener un valor anterior.';
         Object.assign(div.style, {
             color: '#b30000', background: '#ffe6e6', padding: '6px',
             marginTop: '4px', border: '1px solid #ff9999', borderRadius: '4px', fontSize: '12px'
@@ -249,11 +222,19 @@
         campo.parentNode.appendChild(div);
     }
 
-    function mostrarAvisoSexo(motivo) {
-        mostrarAviso('sexo', 'No se pudo obtener el sexo automáticamente (' + motivo + '). Revíselo a mano: puede tener un valor anterior.');
+    // CAMBIO: aviso para la fecha cuando Supersalud está caído y el Comprobador no la trae
+    function mostrarAvisoFecha() {
+        const campo = getCampo('fecha');
+        if (!campo || !campo.parentNode) return;
+        const div = document.createElement('div');
+        div.className = CLASE_AVISO_SEXO;
+        div.textContent = '⚠ No se obtuvo la fecha de nacimiento (Supersalud no está disponible). Digítela a mano.';
+        Object.assign(div.style, {
+            color: '#b30000', background: '#ffe6e6', padding: '6px',
+            marginTop: '4px', border: '1px solid #ff9999', borderRadius: '4px', fontSize: '12px'
+        });
+        campo.parentNode.appendChild(div);
     }
-
-    // ---------- COMPROBADOR DE DERECHOS ----------
 
     function parseTablasComprobador(doc) {
         const TABLAS_IDS = [
@@ -289,39 +270,9 @@
         return registros;
     }
 
-    // Busca en un registro el primer valor no vacío cuyo encabezado (normalizado) cumpla el patrón
-    function valorPorEncabezado(registro, patron) {
-        for (const [k, v] of Object.entries(registro)) {
-            if (k === '_fuente') continue;
-            if (patron.test(norm(k)) && String(v || '').trim()) return String(v).trim();
-        }
-        return '';
-    }
-
-    function extraerDatosRegistro(r) {
-        const apellidos = unir(
-            valorPorEncabezado(r, /^primer apellido$|^apellido 1$|^1er apellido$/),
-            valorPorEncabezado(r, /^segundo apellido$|^apellido 2$|^2do apellido$/)
-        ) || valorPorEncabezado(r, /^apellidos?$/);
-
-        const nombres = unir(
-            valorPorEncabezado(r, /^primer nombre$|^nombre 1$|^1er nombre$/),
-            valorPorEncabezado(r, /^segundo nombre$|^nombre 2$|^2do nombre$/)
-        ) || valorPorEncabezado(r, /^nombres?$/);
-
-        const fecha = valorPorEncabezado(r, /fecha.*nac|f\.? ?nac|nacimiento/);
-
-        return { apellidos, nombres, fecha };
-    }
-
-       async function consultarComprobador(documento) {
-        const diag = [];
-
+    async function consultarComprobador(documento) {
         const r1 = await gmRequest({ method: 'GET', url: BASE_COMPROBADOR + 'Consulta.aspx' });
         const html1 = r1.responseText || '';
-        diag.push('GET1 status=' + r1.status + ' len=' + html1.length +
-            ' viewstate=' + (extraerCampo(html1, '__VIEWSTATE') ? 'si' : 'NO') +
-            ' claves=[' + Object.keys(r1).join(',') + ']');
 
         const body = new URLSearchParams({
             __EVENTTARGET: '',
@@ -353,58 +304,30 @@
             },
             data: body,
         });
-        const txt2 = r2.responseText || '';
-        diag.push('POST status=' + r2.status + ' len=' + txt2.length +
-            ' noSeEncontro=' + (txt2.indexOf('No se encontr') !== -1) +
-            ' inicio="' + txt2.slice(0, 80).replace(/\s+/g, ' ') + '"');
 
-        if (txt2.indexOf('No se encontr') !== -1) {
-            throw new Error(diag.join(' | '));
-        }
+        if ((r2.responseText || '').indexOf('No se encontr') !== -1) return null;
 
         const r3 = await gmRequest({ method: 'GET', url: BASE_COMPROBADOR + 'Resultados.aspx' });
-        const txt3 = r3.responseText || '';
-        const doc = new DOMParser().parseFromString(txt3, 'text/html');
-        const registros = parseTablasComprobador(doc);
-        diag.push('GET3 status=' + r3.status + ' len=' + txt3.length +
-            ' registros=' + registros.length +
-            ' titulo="' + ((doc.title || '').slice(0, 40)) + '"');
+        const doc = new DOMParser().parseFromString(r3.responseText || '', 'text/html');
+        const r = parseTablasComprobador(doc)[0];
+        if (!r) return null;
 
-        console.log(LOG, 'DIAG', diag);
-        registros.forEach((r, i) => console.log(LOG, 'Registro', i, r._fuente, Object.keys(r), r));
-
-        if (!registros.length) {
-            throw new Error(diag.join(' | '));
-        }
-
-        const datos = registros.map(extraerDatosRegistro);
-        const base = datos.find((d) => d.nombres && d.apellidos) || {};
-        const out = {
-            apellidos: base.apellidos || (datos.find((d) => d.apellidos) || {}).apellidos || '',
-            nombres:   base.nombres   || (datos.find((d) => d.nombres)   || {}).nombres   || '',
-            fecha:     (datos.find((d) => d.fecha) || {}).fecha || '',
+        return {
+            apellidos: unir(r['Primer Apellido'], r['Segundo Apellido']),
+            nombres: unir(r['Primer Nombre'], r['Segundo Nombre']),
+            fecha: (r['Fecha Nacimiento'] || '').trim(),
         };
-
-        if (!out.nombres && !out.apellidos) {
-            diag.push('encabezados=[' + Object.keys(registros[0]).join(',') + ']');
-            throw new Error(diag.join(' | '));
-        }
-
-        console.log(LOG, 'Comprobador: datos combinados =', out);
-        return out;
     }
-
-    // ---------- SUPERSALUD ----------
 
     async function consultarSupersalud(documento, codigoTipo) {
         const r = await gmRequest({
             method: 'GET',
             url: BASE_SUPERSALUD + codigoTipo + '/' + encodeURIComponent(documento),
             headers: { Accept: 'application/json' },
-            timeout: 8000, // si está caído no bloquea al resto
         });
+        // CAMBIO: status 0 o 5xx = Supersalud caído (se distingue de "no encontrado")
         if (typeof r.status === 'number' && (r.status === 0 || r.status >= 500)) {
-            throw new Error('Supersalud no disponible (status ' + r.status + ')');
+            throw new Error('Supersalud caído (status ' + r.status + ')');
         }
         if (r.status < 200 || r.status >= 300) return null;
 
@@ -415,42 +338,36 @@
         return {
             apellidos: unir(d.apellido, d.s_apellido),
             nombres: unir(d.nombre, d.s_nombre),
-            fecha: d.fecha_nacimiento ? String(d.fecha_nacimiento).trim() : '',
+            fecha: formatearFechaISO(d.fecha_nacimiento),
             sexo: SEXO_SUPERSALUD_A_GESI[d.sexo] || '',
             numeroOk: numeroCoincide(d, documento),
         };
     }
 
-    // ---------- BÚSQUEDA COMBINADA ----------
-
     async function buscarPersona(documento, tipoDoc) {
-        const codigoTipo = TIPO_DOC_GESI_A_SUPERSALUD[tipoDoc];
-
-        // Primero el Comprobador (depende de la sesión), luego Supersalud
         let base = null;
-        let errorBase = '';
         try {
             base = await consultarComprobador(documento);
         } catch (e) {
-            errorBase = String((e && e.message) || e);
-            console.warn(LOG, 'Falló Comprobador de Derechos:', e);
+            console.warn('[Autocompletar cédula] Falló Comprobador de Derechos:', e);
         }
 
-        let motivoSexo = '';
+        const codigoTipo = TIPO_DOC_GESI_A_SUPERSALUD[tipoDoc];
         let sup = null;
+        let motivoSexo = '';
+        let supCaido = false; // CAMBIO
+
         if (codigoTipo === undefined) {
             motivoSexo = 'este tipo de documento no está configurado para Supersalud';
         } else {
             try {
                 sup = await consultarSupersalud(documento, codigoTipo);
+                if (!sup) motivoSexo = 'Supersalud no encontró a la persona con este tipo de documento';
             } catch (e) {
-                console.warn(LOG, 'Falló Supersalud:', e);
-                motivoSexo = 'Supersalud no está disponible en este momento';
+                console.warn('[Autocompletar cédula] Falló Supersalud:', e);
+                motivoSexo = 'falló la consulta a Supersalud';
+                supCaido = true; // CAMBIO
             }
-        }
-
-        if (codigoTipo !== undefined && !sup && !motivoSexo) {
-            motivoSexo = 'Supersalud no encontró a la persona con este tipo de documento';
         }
 
         const persona = {};
@@ -473,16 +390,14 @@
             }
         }
 
-        // Se acepta resultado parcial: basta con tener nombres o apellidos
-        const hayAlgo = !!(persona.nombres || persona.apellidos);
-        const faltantes = ['nombres', 'apellidos', 'fecha'].filter((c) => !persona[c]);
-        console.log(LOG, 'Resultado final:', persona, 'faltan:', faltantes, 'motivoSexo:', motivoSexo);
-
-        return { persona: hayAlgo ? persona : null, faltantes, motivoSexo, errorBase };
+        // CAMBIO: solo si Supersalud está caído se acepta sin fecha; en los demás casos igual que antes
+        const completa = persona.nombres && persona.apellidos && persona.fecha;
+        const aceptable = supCaido ? (persona.nombres && persona.apellidos) : completa;
+        return { persona: aceptable ? persona : null, motivoSexo };
     }
 
-    function showManualAlert(detalle) {
-        alert('No se encontró la cédula o hubo un error. Por favor, llena los campos manualmente.' + (detalle ? '\n\nDetalle: ' + detalle : ''));
+    function showManualAlert() {
+        alert('No se encontró la cédula o hubo un error. Por favor, llena los campos manualmente.');
     }
 
     let running = false;
@@ -507,40 +422,36 @@
 
         lastClave = clave;
         running = true;
-        quitarAvisos();
+        quitarAvisoSexo();
 
         try {
-            const { persona, faltantes, motivoSexo, errorBase } = await buscarPersona(documento, tipoDoc);
+            const { persona, motivoSexo } = await buscarPersona(documento, tipoDoc);
             if (!persona) {
-                showManualAlert(errorBase || 'el Comprobador no devolvió datos');
+                showManualAlert();
                 return;
             }
 
             autocompletando = true;
             try {
-                if (persona.nombres)   setValue('nombres', persona.nombres);
-                if (persona.apellidos) setValue('apellidos', persona.apellidos);
-
-                const fechaFmt = formatearFecha(persona.fecha);
-                if (fechaFmt) setValue('fecha', fechaFmt);
-
+                setValue('nombres', persona.nombres);
+                setValue('apellidos', persona.apellidos);
+                if (persona.fecha) {
+                    setValue('fecha', persona.fecha);
+                } else {
+                    mostrarAvisoFecha(); // CAMBIO
+                }
                 const sexoLleno = setValueSiExiste('sexo', persona.sexo);
                 if (sexoLleno) {
-                    actualizarGeneroYOrientacion(persona.sexo, tipoDoc, fechaFmt || persona.fecha);
+                    actualizarGeneroYOrientacion(persona.sexo, tipoDoc, persona.fecha);
                 } else {
                     mostrarAvisoSexo(motivoSexo || 'la opción de sexo no existe en el formulario');
+                    if (!persona.fecha) mostrarAvisoFecha(); // mostrarAvisoSexo borra avisos previos
                 }
-
-                // Avisos por datos que no se pudieron obtener
-                if (faltantes.includes('fecha'))     mostrarAviso('fecha', 'No se obtuvo la fecha de nacimiento. Digítela a mano.');
-                if (faltantes.includes('nombres'))   mostrarAviso('nombres', 'No se obtuvieron los nombres. Digítelos a mano.');
-                if (faltantes.includes('apellidos')) mostrarAviso('apellidos', 'No se obtuvieron los apellidos. Digítelos a mano.');
             } finally {
                 autocompletando = false;
             }
         } catch (e) {
-            console.error(LOG, e);
-            showManualAlert(String((e && e.message) || e));
+            showManualAlert();
         } finally {
             running = false;
         }
@@ -563,7 +474,7 @@
                 schedule();
             } else if (e.target.id === env.sexo && ev === 'change') {
                 if (!autocompletando) {
-                    quitarAvisos();
+                    quitarAvisoSexo();
                     const fechaVal = getCampo('fecha')?.value || '';
                     const tipoDocVal = getCampo('tipo_doc')?.value || '';
                     actualizarGeneroYOrientacion(e.target.value, tipoDocVal, fechaVal);
