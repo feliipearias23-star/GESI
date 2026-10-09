@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AUTOCOMPLETAR POR CÉDULA (EDUCATIVO E INSTITUCIONAL)
 // @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
-// @version      1.2
-// @description  Búsqueda y autocompletado de personas por documento en Comprobador de Derechos y Supersalud (con asignación de género >= 14 años)
+// @version      1.3
+// @description  Búsqueda y autocompletado de personas por documento en Comprobador de Derechos y Supersalud (con asignación de género >= 14 años). Funciona aunque Supersalud esté caído.
 // @author       You
 // @match        https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
@@ -15,6 +15,7 @@
 (function() {
     'use strict';
 
+    const LOG = '[Autocompletar cédula]';
     const BASE_COMPROBADOR = 'https://appb.saludcapital.gov.co/comprobadordederechos/';
     const BASE_SUPERSALUD  = 'https://pqrdsuperargo.supersalud.gov.co/api/api/adres/';
 
@@ -68,7 +69,7 @@
     };
 
     const SEXO_SUPERSALUD_A_GESI = { 1: '67', 2: '68' };
-    const CLASE_AVISO_SEXO = 'aviso-sexo-revisar';
+    const CLASE_AVISO = 'aviso-sexo-revisar';
     let autocompletando = false;
 
     function setValue(clave, value) {
@@ -126,12 +127,29 @@
         return partes.map((p) => String(p ?? '').trim()).filter(Boolean).join(' ');
     }
 
-    function formatearFechaISO(iso) {
-        const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || '').trim());
-        if (!m) return String(iso || '').trim();
+    // Quita tildes, pasa a minúsculas y colapsa espacios (para comparar encabezados)
+    function norm(s) {
+        return String(s || '')
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    // Recibe fechas ISO (yyyy-mm-dd...) o latinas (dd/mm/yyyy [hora]) y las deja
+    // en el formato que necesite el campo del formulario
+    function formatearFecha(valor) {
+        const s = String(valor || '').trim();
+        if (!s) return '';
+        let y, m, d;
+        const mIso = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+        const mLat = /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/.exec(s);
+        if (mIso) { y = mIso[1]; m = mIso[2]; d = mIso[3]; }
+        else if (mLat) { d = mLat[1].padStart(2, '0'); m = mLat[2].padStart(2, '0'); y = mLat[3]; }
+        else return s;
         const el = getCampo('fecha');
-        if (el && el.type === 'date') return m[1] + '-' + m[2] + '-' + m[3];
-        return m[3] + '/' + m[2] + '/' + m[1];
+        if (el && el.type === 'date') return y + '-' + m + '-' + d;
+        return d + '/' + m + '/' + y;
     }
 
     function normalizarApellidos(s) {
@@ -203,23 +221,28 @@
         }
     }
 
-    function quitarAvisoSexo() {
-        document.querySelectorAll('.' + CLASE_AVISO_SEXO).forEach((a) => a.remove());
+    function quitarAvisos() {
+        document.querySelectorAll('.' + CLASE_AVISO).forEach((a) => a.remove());
     }
 
-    function mostrarAvisoSexo(motivo) {
-        quitarAvisoSexo();
-        const campo = getCampo('sexo');
+    function mostrarAviso(clave, texto) {
+        const campo = getCampo(clave);
         if (!campo || !campo.parentNode) return;
         const div = document.createElement('div');
-        div.className = CLASE_AVISO_SEXO;
-        div.textContent = '⚠ No se pudo obtener el sexo automáticamente (' + motivo + '). Revíselo a mano: puede tener un valor anterior.';
+        div.className = CLASE_AVISO;
+        div.textContent = '⚠ ' + texto;
         Object.assign(div.style, {
             color: '#b30000', background: '#ffe6e6', padding: '6px',
             marginTop: '4px', border: '1px solid #ff9999', borderRadius: '4px', fontSize: '12px'
         });
         campo.parentNode.appendChild(div);
     }
+
+    function mostrarAvisoSexo(motivo) {
+        mostrarAviso('sexo', 'No se pudo obtener el sexo automáticamente (' + motivo + '). Revíselo a mano: puede tener un valor anterior.');
+    }
+
+    // ---------- COMPROBADOR DE DERECHOS ----------
 
     function parseTablasComprobador(doc) {
         const TABLAS_IDS = [
@@ -253,6 +276,31 @@
             });
         });
         return registros;
+    }
+
+    // Busca en un registro el primer valor no vacío cuyo encabezado (normalizado) cumpla el patrón
+    function valorPorEncabezado(registro, patron) {
+        for (const [k, v] of Object.entries(registro)) {
+            if (k === '_fuente') continue;
+            if (patron.test(norm(k)) && String(v || '').trim()) return String(v).trim();
+        }
+        return '';
+    }
+
+    function extraerDatosRegistro(r) {
+        const apellidos = unir(
+            valorPorEncabezado(r, /^primer apellido$|^apellido 1$|^1er apellido$/),
+            valorPorEncabezado(r, /^segundo apellido$|^apellido 2$|^2do apellido$/)
+        ) || valorPorEncabezado(r, /^apellidos?$/);
+
+        const nombres = unir(
+            valorPorEncabezado(r, /^primer nombre$|^nombre 1$|^1er nombre$/),
+            valorPorEncabezado(r, /^segundo nombre$|^nombre 2$|^2do nombre$/)
+        ) || valorPorEncabezado(r, /^nombres?$/);
+
+        const fecha = valorPorEncabezado(r, /fecha.*nac|f\.? ?nac|nacimiento/);
+
+        return { apellidos, nombres, fecha };
     }
 
     async function consultarComprobador(documento) {
@@ -290,26 +338,42 @@
             data: body,
         });
 
-        if ((r2.responseText || '').indexOf('No se encontr') !== -1) return null;
+        if ((r2.responseText || '').indexOf('No se encontr') !== -1) {
+            console.log(LOG, 'Comprobador: "No se encontró" para', documento);
+            return null;
+        }
 
         const r3 = await gmRequest({ method: 'GET', url: BASE_COMPROBADOR + 'Resultados.aspx' });
         const doc = new DOMParser().parseFromString(r3.responseText || '', 'text/html');
-        const r = parseTablasComprobador(doc)[0];
-        if (!r) return null;
+        const registros = parseTablasComprobador(doc);
 
-        return {
-            apellidos: unir(r['Primer Apellido'], r['Segundo Apellido']),
-            nombres: unir(r['Primer Nombre'], r['Segundo Nombre']),
-            fecha: (r['Fecha Nacimiento'] || '').trim(),
+        console.log(LOG, 'Comprobador: registros encontrados =', registros.length);
+        registros.forEach((r, i) => console.log(LOG, 'Registro', i, r._fuente, Object.keys(r), r));
+
+        if (!registros.length) return null;
+
+        // Se combinan TODOS los registros: cada dato sale del primer registro que lo tenga
+        const datos = registros.map(extraerDatosRegistro);
+        const base = datos.find((d) => d.nombres && d.apellidos) || {};
+        const out = {
+            apellidos: base.apellidos || (datos.find((d) => d.apellidos) || {}).apellidos || '',
+            nombres:   base.nombres   || (datos.find((d) => d.nombres)   || {}).nombres   || '',
+            fecha:     (datos.find((d) => d.fecha) || {}).fecha || '',
         };
+        console.log(LOG, 'Comprobador: datos combinados =', out);
+        return out;
     }
+
+    // ---------- SUPERSALUD ----------
 
     async function consultarSupersalud(documento, codigoTipo) {
         const r = await gmRequest({
             method: 'GET',
             url: BASE_SUPERSALUD + codigoTipo + '/' + encodeURIComponent(documento),
             headers: { Accept: 'application/json' },
+            timeout: 8000, // si está caído no bloquea al resto
         });
+        if (!r.status || r.status >= 500) throw new Error('Supersalud no disponible (status ' + r.status + ')');
         if (r.status < 200 || r.status >= 300) return null;
 
         let d;
@@ -319,34 +383,40 @@
         return {
             apellidos: unir(d.apellido, d.s_apellido),
             nombres: unir(d.nombre, d.s_nombre),
-            fecha: formatearFechaISO(d.fecha_nacimiento),
+            fecha: d.fecha_nacimiento ? String(d.fecha_nacimiento).trim() : '',
             sexo: SEXO_SUPERSALUD_A_GESI[d.sexo] || '',
             numeroOk: numeroCoincide(d, documento),
         };
     }
 
+    // ---------- BÚSQUEDA COMBINADA ----------
+
     async function buscarPersona(documento, tipoDoc) {
-        let base = null;
-        try {
-            base = await consultarComprobador(documento);
-        } catch (e) {
-            console.warn('[Autocompletar cédula] Falló Comprobador de Derechos:', e);
-        }
-
         const codigoTipo = TIPO_DOC_GESI_A_SUPERSALUD[tipoDoc];
-        let sup = null;
-        let motivoSexo = '';
 
+        // Ambas consultas en paralelo; una caída no afecta a la otra
+        const pBase = consultarComprobador(documento).catch((e) => {
+            console.warn(LOG, 'Falló Comprobador de Derechos:', e);
+            return null;
+        });
+
+        let motivoSexo = '';
+        let pSup;
         if (codigoTipo === undefined) {
             motivoSexo = 'este tipo de documento no está configurado para Supersalud';
+            pSup = Promise.resolve(null);
         } else {
-            try {
-                sup = await consultarSupersalud(documento, codigoTipo);
-                if (!sup) motivoSexo = 'Supersalud no encontró a la persona con este tipo de documento';
-            } catch (e) {
-                console.warn('[Autocompletar cédula] Falló Supersalud:', e);
-                motivoSexo = 'falló la consulta a Supersalud';
-            }
+            pSup = consultarSupersalud(documento, codigoTipo).catch((e) => {
+                console.warn(LOG, 'Falló Supersalud:', e);
+                motivoSexo = 'Supersalud no está disponible en este momento';
+                return null;
+            });
+        }
+
+        const [base, sup] = await Promise.all([pBase, pSup]);
+
+        if (codigoTipo !== undefined && !sup && !motivoSexo) {
+            motivoSexo = 'Supersalud no encontró a la persona con este tipo de documento';
         }
 
         const persona = {};
@@ -369,8 +439,12 @@
             }
         }
 
-        const completa = persona.nombres && persona.apellidos && persona.fecha;
-        return { persona: completa ? persona : null, motivoSexo };
+        // Ahora se acepta resultado parcial: basta con tener nombres o apellidos
+        const hayAlgo = !!(persona.nombres || persona.apellidos);
+        const faltantes = ['nombres', 'apellidos', 'fecha'].filter((c) => !persona[c]);
+        console.log(LOG, 'Resultado final:', persona, 'faltan:', faltantes, 'motivoSexo:', motivoSexo);
+
+        return { persona: hayAlgo ? persona : null, faltantes, motivoSexo };
     }
 
     function showManualAlert() {
@@ -399,10 +473,10 @@
 
         lastClave = clave;
         running = true;
-        quitarAvisoSexo();
+        quitarAvisos();
 
         try {
-            const { persona, motivoSexo } = await buscarPersona(documento, tipoDoc);
+            const { persona, faltantes, motivoSexo } = await buscarPersona(documento, tipoDoc);
             if (!persona) {
                 showManualAlert();
                 return;
@@ -410,19 +484,28 @@
 
             autocompletando = true;
             try {
-                setValue('nombres', persona.nombres);
-                setValue('apellidos', persona.apellidos);
-                setValue('fecha', persona.fecha);
+                if (persona.nombres)   setValue('nombres', persona.nombres);
+                if (persona.apellidos) setValue('apellidos', persona.apellidos);
+
+                const fechaFmt = formatearFecha(persona.fecha);
+                if (fechaFmt) setValue('fecha', fechaFmt);
+
                 const sexoLleno = setValueSiExiste('sexo', persona.sexo);
                 if (sexoLleno) {
-                    actualizarGeneroYOrientacion(persona.sexo, tipoDoc, persona.fecha);
+                    actualizarGeneroYOrientacion(persona.sexo, tipoDoc, fechaFmt || persona.fecha);
                 } else {
                     mostrarAvisoSexo(motivoSexo || 'la opción de sexo no existe en el formulario');
                 }
+
+                // Avisos por datos que no se pudieron obtener
+                if (faltantes.includes('fecha'))     mostrarAviso('fecha', 'No se obtuvo la fecha de nacimiento. Digítela a mano.');
+                if (faltantes.includes('nombres'))   mostrarAviso('nombres', 'No se obtuvieron los nombres. Digítelos a mano.');
+                if (faltantes.includes('apellidos')) mostrarAviso('apellidos', 'No se obtuvieron los apellidos. Digítelos a mano.');
             } finally {
                 autocompletando = false;
             }
         } catch (e) {
+            console.error(LOG, e);
             showManualAlert();
         } finally {
             running = false;
@@ -446,7 +529,7 @@
                 schedule();
             } else if (e.target.id === env.sexo && ev === 'change') {
                 if (!autocompletando) {
-                    quitarAvisoSexo();
+                    quitarAvisos();
                     const fechaVal = getCampo('fecha')?.value || '';
                     const tipoDocVal = getCampo('tipo_doc')?.value || '';
                     actualizarGeneroYOrientacion(e.target.value, tipoDocVal, fechaVal);
