@@ -102,25 +102,27 @@
         return m ? m[1] : '';
     }
 
-    function gmRequest(opts) {
-        if (typeof GM_xmlhttpRequest === 'function') {
-            return new Promise((resolve, reject) => {
-                GM_xmlhttpRequest(Object.assign({ timeout: 20000 }, opts, {
-                    onload: resolve,
-                    onerror: reject,
-                    ontimeout: () => reject(new Error('timeout')),
-                }));
-            });
-        }
-        const api = window.pywebview && window.pywebview.api;
-        if (!api || typeof api.cd_http_request !== 'function') {
-            return Promise.reject(new Error('puente de la app no disponible (¿app anterior a 1.0.45?)'));
-        }
-        return api.cd_http_request(Object.assign({ timeout: 20000 }, opts)).then((r) => {
-            if (!r || !r.ok) throw new Error((r && r.error) || 'error de red');
-            return r;
+function gmRequest(opts) {
+    // En Tampermonkey: usa GM_xmlhttpRequest como siempre
+    if (typeof GM_xmlhttpRequest === 'function') {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest(Object.assign({ timeout: 20000 }, opts, {
+                onload: resolve,
+                onerror: reject,
+                ontimeout: () => reject(new Error('timeout')),
+            }));
         });
     }
+    // Dentro de la app (1.0.45 o superior): la consulta la hace Python
+    const api = window.pywebview && window.pywebview.api;
+    if (!api || typeof api.cd_http_request !== 'function') {
+        return Promise.reject(new Error('puente de la app no disponible (¿app anterior a 1.0.45?)'));
+    }
+    return api.cd_http_request(Object.assign({ timeout: 20000 }, opts)).then((r) => {
+        if (!r || !r.ok) throw new Error((r && r.error) || 'error de red');
+        return r; // trae .status y .responseText, igual que GM_xmlhttpRequest
+    });
+}
 
     function unir(...partes) {
         return partes.map((p) => String(p ?? '').trim()).filter(Boolean).join(' ');
