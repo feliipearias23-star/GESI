@@ -371,7 +371,7 @@
             method: 'GET',
             url: BASE_SUPERSALUD + codigoTipo + '/' + encodeURIComponent(documento),
             headers: { Accept: 'application/json' },
-            timeout: 8000, // si está caído no bloquea al resto
+            timeout: 3000, // si está caído no bloquea al resto
         });
         if (!r.status || r.status >= 500) throw new Error('Supersalud no disponible (status ' + r.status + ')');
         if (r.status < 200 || r.status >= 300) return null;
