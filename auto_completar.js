@@ -124,6 +124,16 @@
         return r; // trae .status y .responseText, igual que GM_xmlhttpRequest
     });
 }
+        const api = window.pywebview && window.pywebview.api;
+        if (!api || typeof api.cd_http_request !== 'function') {
+            return Promise.reject(new Error('puente de la app no disponible (¿app anterior a 1.0.45?)'));
+        }
+        return api.cd_http_request(Object.assign({ timeout: 20000 }, opts)).then((r) => {
+            if (!r || !r.ok) throw new Error((r && r.error) || 'error de red');
+            return r;
+        });
+    }
+
     function unir(...partes) {
         return partes.map((p) => String(p ?? '').trim()).filter(Boolean).join(' ');
     }
@@ -304,9 +314,14 @@
         return { apellidos, nombres, fecha };
     }
 
-    async function consultarComprobador(documento) {
+       async function consultarComprobador(documento) {
+        const diag = [];
+
         const r1 = await gmRequest({ method: 'GET', url: BASE_COMPROBADOR + 'Consulta.aspx' });
         const html1 = r1.responseText || '';
+        diag.push('GET1 status=' + r1.status + ' len=' + html1.length +
+            ' viewstate=' + (extraerCampo(html1, '__VIEWSTATE') ? 'si' : 'NO') +
+            ' claves=[' + Object.keys(r1).join(',') + ']');
 
         const body = new URLSearchParams({
             __EVENTTARGET: '',
@@ -338,22 +353,30 @@
             },
             data: body,
         });
+        const txt2 = r2.responseText || '';
+        diag.push('POST status=' + r2.status + ' len=' + txt2.length +
+            ' noSeEncontro=' + (txt2.indexOf('No se encontr') !== -1) +
+            ' inicio="' + txt2.slice(0, 80).replace(/\s+/g, ' ') + '"');
 
-        if ((r2.responseText || '').indexOf('No se encontr') !== -1) {
-            console.log(LOG, 'Comprobador: "No se encontró" para', documento);
-            return null;
+        if (txt2.indexOf('No se encontr') !== -1) {
+            throw new Error(diag.join(' | '));
         }
 
         const r3 = await gmRequest({ method: 'GET', url: BASE_COMPROBADOR + 'Resultados.aspx' });
-        const doc = new DOMParser().parseFromString(r3.responseText || '', 'text/html');
+        const txt3 = r3.responseText || '';
+        const doc = new DOMParser().parseFromString(txt3, 'text/html');
         const registros = parseTablasComprobador(doc);
+        diag.push('GET3 status=' + r3.status + ' len=' + txt3.length +
+            ' registros=' + registros.length +
+            ' titulo="' + ((doc.title || '').slice(0, 40)) + '"');
 
-        console.log(LOG, 'Comprobador: registros encontrados =', registros.length);
+        console.log(LOG, 'DIAG', diag);
         registros.forEach((r, i) => console.log(LOG, 'Registro', i, r._fuente, Object.keys(r), r));
 
-        if (!registros.length) return null;
+        if (!registros.length) {
+            throw new Error(diag.join(' | '));
+        }
 
-        // Se combinan TODOS los registros: cada dato sale del primer registro que lo tenga
         const datos = registros.map(extraerDatosRegistro);
         const base = datos.find((d) => d.nombres && d.apellidos) || {};
         const out = {
@@ -361,6 +384,12 @@
             nombres:   base.nombres   || (datos.find((d) => d.nombres)   || {}).nombres   || '',
             fecha:     (datos.find((d) => d.fecha) || {}).fecha || '',
         };
+
+        if (!out.nombres && !out.apellidos) {
+            diag.push('encabezados=[' + Object.keys(registros[0]).join(',') + ']');
+            throw new Error(diag.join(' | '));
+        }
+
         console.log(LOG, 'Comprobador: datos combinados =', out);
         return out;
     }
