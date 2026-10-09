@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AUTOCOMPLETAR POR CÉDULA (EDUCATIVO E INSTITUCIONAL)
 // @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
-// @version      1.3
+// @version      1.4
 // @description  Búsqueda y autocompletado de personas por documento en Comprobador de Derechos y Supersalud (con asignación de género >= 14 años). Funciona aunque Supersalud esté caído.
 // @author       You
 // @match        https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
@@ -371,10 +371,13 @@
             method: 'GET',
             url: BASE_SUPERSALUD + codigoTipo + '/' + encodeURIComponent(documento),
             headers: { Accept: 'application/json' },
-            timeout: 3000, // si está caído no bloquea al resto
+            timeout: 8000, // si está caído no bloquea al resto
         });
-        if (typeof r.status === 'number' && (r.status === 0 || r.status >= 500)) throw new Error('Supersalud no disponible (status ' + r.status + ')');
+        if (typeof r.status === 'number' && (r.status === 0 || r.status >= 500)) {
+            throw new Error('Supersalud no disponible (status ' + r.status + ')');
+        }
         if (r.status < 200 || r.status >= 300) return null;
+
         let d;
         try { d = JSON.parse(r.responseText || ''); } catch (e) { return null; }
         if (!d || typeof d !== 'object') return null;
@@ -393,26 +396,28 @@
     async function buscarPersona(documento, tipoDoc) {
         const codigoTipo = TIPO_DOC_GESI_A_SUPERSALUD[tipoDoc];
 
-        // Ambas consultas en paralelo; una caída no afecta a la otra
-        const pBase = consultarComprobador(documento).catch((e) => {
+        // Primero el Comprobador (depende de la sesión), luego Supersalud
+        let base = null;
+        let errorBase = '';
+        try {
+            base = await consultarComprobador(documento);
+        } catch (e) {
+            errorBase = String((e && e.message) || e);
             console.warn(LOG, 'Falló Comprobador de Derechos:', e);
-            return null;
-        });
-
-        let motivoSexo = '';
-        let pSup;
-        if (codigoTipo === undefined) {
-            motivoSexo = 'este tipo de documento no está configurado para Supersalud';
-            pSup = Promise.resolve(null);
-        } else {
-            pSup = consultarSupersalud(documento, codigoTipo).catch((e) => {
-                console.warn(LOG, 'Falló Supersalud:', e);
-                motivoSexo = 'Supersalud no está disponible en este momento';
-                return null;
-            });
         }
 
-        const [base, sup] = await Promise.all([pBase, pSup]);
+        let motivoSexo = '';
+        let sup = null;
+        if (codigoTipo === undefined) {
+            motivoSexo = 'este tipo de documento no está configurado para Supersalud';
+        } else {
+            try {
+                sup = await consultarSupersalud(documento, codigoTipo);
+            } catch (e) {
+                console.warn(LOG, 'Falló Supersalud:', e);
+                motivoSexo = 'Supersalud no está disponible en este momento';
+            }
+        }
 
         if (codigoTipo !== undefined && !sup && !motivoSexo) {
             motivoSexo = 'Supersalud no encontró a la persona con este tipo de documento';
@@ -438,16 +443,16 @@
             }
         }
 
-        // Ahora se acepta resultado parcial: basta con tener nombres o apellidos
+        // Se acepta resultado parcial: basta con tener nombres o apellidos
         const hayAlgo = !!(persona.nombres || persona.apellidos);
         const faltantes = ['nombres', 'apellidos', 'fecha'].filter((c) => !persona[c]);
         console.log(LOG, 'Resultado final:', persona, 'faltan:', faltantes, 'motivoSexo:', motivoSexo);
 
-        return { persona: hayAlgo ? persona : null, faltantes, motivoSexo };
+        return { persona: hayAlgo ? persona : null, faltantes, motivoSexo, errorBase };
     }
 
-    function showManualAlert() {
-        alert('No se encontró la cédula o hubo un error. Por favor, llena los campos manualmente.');
+    function showManualAlert(detalle) {
+        alert('No se encontró la cédula o hubo un error. Por favor, llena los campos manualmente.' + (detalle ? '\n\nDetalle: ' + detalle : ''));
     }
 
     let running = false;
@@ -475,9 +480,9 @@
         quitarAvisos();
 
         try {
-            const { persona, faltantes, motivoSexo } = await buscarPersona(documento, tipoDoc);
+            const { persona, faltantes, motivoSexo, errorBase } = await buscarPersona(documento, tipoDoc);
             if (!persona) {
-                showManualAlert();
+                showManualAlert(errorBase || 'el Comprobador no devolvió datos');
                 return;
             }
 
@@ -505,7 +510,7 @@
             }
         } catch (e) {
             console.error(LOG, e);
-            showManualAlert();
+            showManualAlert(String((e && e.message) || e));
         } finally {
             running = false;
         }
