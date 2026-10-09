@@ -308,14 +308,31 @@
         if ((r2.responseText || '').indexOf('No se encontr') !== -1) return null;
 
         const r3 = await gmRequest({ method: 'GET', url: BASE_COMPROBADOR + 'Resultados.aspx' });
-        const doc = new DOMParser().parseFromString(r3.responseText || '', 'text/html');
-        const r = parseTablasComprobador(doc)[0];
-        if (!r) return null;
+               const doc = new DOMParser().parseFromString(r3.responseText || '', 'text/html');
+
+        const norm = (s) => (s || '')
+            .replace(/\u00A0/g, ' ')
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/\s+/g, ' ').trim().toLowerCase();
+
+        // Buscar la tabla de resultados (la que tiene "No. Identificación")
+        const tabla = [...doc.querySelectorAll('table')].find(t =>
+            norm(t.textContent).includes('no. identificacion') &&
+            norm(t.textContent).includes('fecha nacimiento'));
+        if (!tabla) return null;
+
+        const filas = [...tabla.querySelectorAll('tr')];
+        const idxEnc = filas.findIndex(tr => norm(tr.textContent).includes('fecha nacimiento'));
+        if (idxEnc === -1 || !filas[idxEnc + 1]) return null;
+
+        const enc = [...filas[idxEnc].children].map(c => norm(c.textContent));
+        const celdas = [...filas[idxEnc + 1].children].map(c => (c.textContent || '').replace(/\u00A0/g, ' ').trim());
+        const col = (nombre) => celdas[enc.indexOf(norm(nombre))] || '';
 
         return {
-            apellidos: unir(r['Primer Apellido'], r['Segundo Apellido']),
-            nombres: unir(r['Primer Nombre'], r['Segundo Nombre']),
-            fecha: (r['Fecha Nacimiento'] || '').trim(),
+            apellidos: unir(col('Primer Apellido'), col('Segundo Apellido')),
+            nombres: unir(col('Primer Nombre'), col('Segundo Nombre')),
+            fecha: col('Fecha Nacimiento'),   // ej: 22/04/2016
         };
     }
 
