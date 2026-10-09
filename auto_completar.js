@@ -112,7 +112,6 @@
                 }));
             });
         }
-            // Dentro de la app (1.0.45 o superior): la consulta la hace Python
         const api = window.pywebview && window.pywebview.api;
         if (!api || typeof api.cd_http_request !== 'function') {
             return Promise.reject(new Error('puente de la app no disponible (¿app anterior a 1.0.45?)'));
