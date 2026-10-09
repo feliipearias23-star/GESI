@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AUTOCOMPLETAR POR CÉDULA (EDUCATIVO E INSTITUCIONAL)
 // @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
-// @version      1.5
+// @version      1.2
 // @description  Búsqueda y autocompletado de personas por documento en Comprobador de Derechos y Supersalud (con asignación de género >= 14 años)
 // @author       You
 // @match        https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
@@ -221,20 +221,6 @@
         campo.parentNode.appendChild(div);
     }
 
-    // CAMBIO: aviso para la fecha cuando Supersalud está caído y el Comprobador no la trae
-    function mostrarAvisoFecha() {
-        const campo = getCampo('fecha');
-        if (!campo || !campo.parentNode) return;
-        const div = document.createElement('div');
-        div.className = CLASE_AVISO_SEXO;
-        div.textContent = '⚠ No se obtuvo la fecha de nacimiento (Supersalud no está disponible). Digítela a mano.';
-        Object.assign(div.style, {
-            color: '#b30000', background: '#ffe6e6', padding: '6px',
-            marginTop: '4px', border: '1px solid #ff9999', borderRadius: '4px', fontSize: '12px'
-        });
-        campo.parentNode.appendChild(div);
-    }
-
     function parseTablasComprobador(doc) {
         const TABLAS_IDS = [
             'MainContent_grdContributivo',
@@ -324,10 +310,6 @@
             url: BASE_SUPERSALUD + codigoTipo + '/' + encodeURIComponent(documento),
             headers: { Accept: 'application/json' },
         });
-        // CAMBIO: status 0 o 5xx = Supersalud caído (se distingue de "no encontrado")
-        if (typeof r.status === 'number' && (r.status === 0 || r.status >= 500)) {
-            throw new Error('Supersalud caído (status ' + r.status + ')');
-        }
         if (r.status < 200 || r.status >= 300) return null;
 
         let d;
@@ -354,7 +336,6 @@
         const codigoTipo = TIPO_DOC_GESI_A_SUPERSALUD[tipoDoc];
         let sup = null;
         let motivoSexo = '';
-        let supCaido = false; // CAMBIO
 
         if (codigoTipo === undefined) {
             motivoSexo = 'este tipo de documento no está configurado para Supersalud';
@@ -365,7 +346,6 @@
             } catch (e) {
                 console.warn('[Autocompletar cédula] Falló Supersalud:', e);
                 motivoSexo = 'falló la consulta a Supersalud';
-                supCaido = true; // CAMBIO
             }
         }
 
@@ -389,10 +369,8 @@
             }
         }
 
-        // CAMBIO: solo si Supersalud está caído se acepta sin fecha; en los demás casos igual que antes
         const completa = persona.nombres && persona.apellidos && persona.fecha;
-        const aceptable = supCaido ? (persona.nombres && persona.apellidos) : completa;
-        return { persona: aceptable ? persona : null, motivoSexo };
+        return { persona: completa ? persona : null, motivoSexo };
     }
 
     function showManualAlert() {
@@ -434,17 +412,12 @@
             try {
                 setValue('nombres', persona.nombres);
                 setValue('apellidos', persona.apellidos);
-                if (persona.fecha) {
-                    setValue('fecha', persona.fecha);
-                } else {
-                    mostrarAvisoFecha(); // CAMBIO
-                }
+                setValue('fecha', persona.fecha);
                 const sexoLleno = setValueSiExiste('sexo', persona.sexo);
                 if (sexoLleno) {
                     actualizarGeneroYOrientacion(persona.sexo, tipoDoc, persona.fecha);
                 } else {
                     mostrarAvisoSexo(motivoSexo || 'la opción de sexo no existe en el formulario');
-                    if (!persona.fecha) mostrarAvisoFecha(); // mostrarAvisoSexo borra avisos previos
                 }
             } finally {
                 autocompletando = false;
