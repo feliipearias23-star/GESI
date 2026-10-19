@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         UNIDADES ATENCIÓN INFANCIA
 // @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
-// @version      2026.10.19.3
-// @description  Caracterización Unidades Atención Infancia: cascadas por tipo de documento, cascada sexo/género/identidad/orientación según edad, validador edad/documento con corrección automática, alertas prioritarias en "No aplica" por defecto y autocompletado por cédula (Comprobador de Derechos + Supersalud)
+// @version      2026.10.19.4
+// @description  Caracterización Unidades Atención Infancia: cascadas por tipo de documento, cascada sexo/género/identidad/orientación según edad, validador edad/documento con corrección automática, alertas prioritarias en "No aplica" por defecto y autocompletado por cédula (Comprobador de Derechos + Supersalud: nombres, fecha, sexo, afiliación y EAPB)
 // @author       You
 // @match        https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
@@ -26,6 +26,8 @@
         nombres: 'valorControl21525', // campo único: aquí van nombres + apellidos
         cedula: 'valorControl21527',
         fecha: 'valorControl21533',
+        afiliacion: 'valorControl21542', // Afiliación al SGSSS (lista: 131 Subsidiado, 132 Contributivo, 133 Excepción/especial, 134 Vinculado, 135 No asegurado)
+        eapb: 'valorControl21543',       // Nombre EAPB (texto libre)
 
         tipo_doc: 'valorControl21526',
         nacionalidad: 'valorControl21528',
@@ -451,6 +453,26 @@
             campo.parentNode.appendChild(div);
         }
 
+        // ---------- Aviso debajo del campo Afiliación al SGSSS ----------
+        const CLASE_AVISO_AFIL = 'aviso-afiliacion-revisar';
+
+        function quitarAvisoAfiliacion() {
+            document.querySelectorAll('.' + CLASE_AVISO_AFIL).forEach((a) => a.remove());
+        }
+
+        function mostrarAvisoAfiliacion(faltantes, motivo) {
+            quitarAvisoAfiliacion();
+            const campo = getCampo('afiliacion');
+            if (!campo || !campo.parentNode) return;
+            const div = document.createElement('div');
+            div.className = CLASE_AVISO_AFIL;
+            div.textContent = '⚠ No se pudo obtener automáticamente: ' + faltantes.join(' y ') +
+                (motivo ? ' (' + motivo + ')' : '') + '. Revíselo a mano.';
+            Object.assign(div.style, { color: '#b30000', background: '#ffe6e6', padding: '6px',
+                marginTop: '4px', border: '1px solid #ff9999', borderRadius: '4px', fontSize: '12px' });
+            campo.parentNode.appendChild(div);
+        }
+
         // ---------- Fuente 1: Comprobador de Derechos ----------
         function parseTablasComprobador(doc) {
             const TABLAS_IDS = [
@@ -533,7 +555,6 @@
             const r3 = await gmRequest({ method: 'GET', url: BASE_COMPROBADOR + 'Resultados.aspx' });
             const doc = new DOMParser().parseFromString(r3.responseText || '', 'text/html');
             const registros = parseTablasComprobador(doc);
-            console.log('[Autocompletar cédula][DIAGNÓSTICO] Comprobador, todas las filas:', JSON.stringify(registros));
             if (!registros.length) return null;
 
             // Resultados.aspx guarda en sesión la ÚLTIMA consulta exitosa. Si la consulta actual no
@@ -554,10 +575,28 @@
                 r = registros[0]; // sin columna de número no se puede verificar
             }
 
+            // Régimen de afiliación: solo con filas verificadas (del número consultado) de las tablas
+            // Contributivo o Subsidiado, y sin marcas de retiro/suspensión. Si aparece en ambas, no se decide.
+            const activa = (reg) => !Object.values(reg).some((v) => /retirad|suspendid|inactiv|fallecid|cancelad/i.test(String(v)));
+            const coincidentes = verificables.filter((reg) => quitarCeros(reg[claveNumero(reg)]) === esperado && activa(reg));
+            const filaContrib = coincidentes.find((reg) => reg._fuente === 'MainContent_grdContributivo');
+            const filaSubs = coincidentes.find((reg) => reg._fuente === 'MainContent_grdSubsidiado');
+            let regimen = '';
+            let filaRegimen = null;
+            if (filaContrib && !filaSubs) { regimen = '132'; filaRegimen = filaContrib; }
+            else if (filaSubs && !filaContrib) { regimen = '131'; filaRegimen = filaSubs; }
+            let eapb = '';
+            if (filaRegimen) {
+                const kEps = Object.keys(filaRegimen).find((k) => /(eps|eapb|administradora|aseguradora|entidad)/i.test(k) && String(filaRegimen[k]).trim());
+                if (kEps) eapb = String(filaRegimen[kEps]).trim();
+            }
+
             return {
                 apellidos: unir(r['Primer Apellido'], r['Segundo Apellido']),
                 nombres: unir(r['Primer Nombre'], r['Segundo Nombre']),
                 fecha: (r['Fecha Nacimiento'] || '').trim(),
+                regimen,
+                eapb,
             };
         }
 
@@ -573,7 +612,10 @@
             let d;
             try { d = JSON.parse(r.responseText || ''); } catch (e) { return null; }
             if (!d || typeof d !== 'object') return null;
-            console.log('[Autocompletar cédula][DIAGNÓSTICO] Supersalud, respuesta completa:', JSON.stringify(d));
+
+            // estado_afiliacion viene como "AC en SANITAS municipio BOGOTÁ. D.C." (AC = activo)
+            const estado = String(d.estado_afiliacion || '').trim();
+            const mEps = /\ben\s+(.+?)\s+municipio\b/i.exec(estado);
 
             return {
                 apellidos: unir(d.apellido, d.s_apellido),
@@ -581,7 +623,43 @@
                 fecha: formatearFechaISO(d.fecha_nacimiento),
                 sexo: SEXO_SUPERSALUD_A_GESI[d.sexo] || '',
                 numeroOk: numeroCoincide(d, documento),
+                estado,
+                activo: /^AC\b/i.test(estado),
+                eapb: mEps ? mEps[1].trim() : '',
+                tipoAfiliado: String(d.tipo_de_afiliado ?? ''),
             };
+        }
+
+        // Decide Afiliación al SGSSS y Nombre EAPB con lo que entregan las dos fuentes.
+        //  - EAPB: de Supersalud si la afiliación está activa; si no, del Comprobador.
+        //  - Régimen: Comprobador (tabla Contributivo o Subsidiado) o Supersalud con tipo de afiliado
+        //    1 (cotizante) = Contributivo. Si las fuentes se contradicen o no alcanzan, no se llena.
+        function decidirAfiliacion(base, sup) {
+            const motivos = [];
+            let eapb = '';
+            let regSup = '';
+
+            if (!sup) {
+                motivos.push('sin respuesta de Supersalud');
+            } else if (!sup.numeroOk) {
+                motivos.push('el número de documento de Supersalud no coincide');
+            } else if (!sup.activo) {
+                motivos.push('Supersalud reporta la afiliación como "' + (sup.estado || 'sin dato') + '"');
+            } else {
+                eapb = sup.eapb;
+                if (sup.tipoAfiliado === '1') regSup = '132';
+                else motivos.push('no se puede deducir el régimen con el tipo de afiliado ' + (sup.tipoAfiliado || 'sin dato'));
+            }
+
+            const regBase = (base && base.regimen) || '';
+            if (!eapb && base && base.eapb) eapb = base.eapb;
+
+            let afiliacion = regBase || regSup;
+            if (regBase && regSup && regBase !== regSup) {
+                afiliacion = '';
+                motivos.push('el Comprobador y Supersalud no coinciden en el régimen');
+            }
+            return { afiliacion, eapb, motivo: motivos.join('; ') };
         }
 
         // ---------- Búsqueda ----------
@@ -634,6 +712,11 @@
                 }
             }
 
+            const af = decidirAfiliacion(base, sup);
+            persona.afiliacion = af.afiliacion;
+            persona.eapb = af.eapb;
+            persona.motivoAfiliacion = af.motivo;
+
             const completa = persona.nombres && persona.apellidos && persona.fecha;
             return { persona: completa ? persona : null, motivoSexo };
         }
@@ -661,6 +744,8 @@
             try {
                 setValue('nombres', '');
                 setValue('fecha', '');
+                setValue('afiliacion', '');
+                setValue('eapb', '');
             } finally {
                 autocompletando = false;
             }
@@ -696,6 +781,7 @@
             lastClave = clave;
             running = true;
             quitarAvisoSexo();
+            quitarAvisoAfiliacion();
 
             try {
                 const { persona, motivoSexo } = await buscarPersona(documento, tipoDoc);
@@ -723,6 +809,15 @@
                     if (!sexoLleno) {
                         mostrarAvisoSexo(motivoSexo || 'la opción de sexo no existe en el formulario');
                     }
+
+                    // Afiliación y EAPB: siempre se escriben (o se vacían) para no dejar los de la persona anterior
+                    const afiliacionLlena = persona.afiliacion ? setValueSiExiste('afiliacion', persona.afiliacion) : false;
+                    if (!afiliacionLlena) setValue('afiliacion', '');
+                    setValue('eapb', persona.eapb || '');
+                    const faltantes = [];
+                    if (!afiliacionLlena) faltantes.push('Afiliación al SGSSS');
+                    if (!persona.eapb) faltantes.push('Nombre EAPB');
+                    if (faltantes.length) mostrarAvisoAfiliacion(faltantes, persona.motivoAfiliacion);
                 } finally {
                     autocompletando = false;
                 }
@@ -751,6 +846,8 @@
                 if (e.target.id === IDS.cedula) schedule();
                 // Cambiar el tipo de documento con la cédula ya escrita: volver a consultar
                 else if (e.target.id === IDS.tipo_doc && ev === 'change') schedule();
+                // Si la persona corrige la afiliación a mano, el aviso ya no hace falta
+                else if (e.target.id === IDS.afiliacion && ev === 'change' && !autocompletando) quitarAvisoAfiliacion();
                 // Si la persona corrige el sexo a mano, el aviso ya no hace falta
                 else if (e.target.id === IDS.sexo && ev === 'change' && !autocompletando) quitarAvisoSexo();
             }, true);
