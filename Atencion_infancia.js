@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         UNIDADES ATENCIÓN INFANCIA
 // @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
-// @version      2026.10.19.2
+// @version      2026.10.19.3
 // @description  Caracterización Unidades Atención Infancia: cascadas por tipo de documento, cascada sexo/género/identidad/orientación según edad, validador edad/documento con corrección automática, alertas prioritarias en "No aplica" por defecto y autocompletado por cédula (Comprobador de Derechos + Supersalud)
 // @author       You
 // @match        https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
@@ -533,6 +533,7 @@
             const r3 = await gmRequest({ method: 'GET', url: BASE_COMPROBADOR + 'Resultados.aspx' });
             const doc = new DOMParser().parseFromString(r3.responseText || '', 'text/html');
             const registros = parseTablasComprobador(doc);
+            console.log('[Autocompletar cédula][DIAGNÓSTICO] Comprobador, todas las filas:', JSON.stringify(registros));
             if (!registros.length) return null;
 
             // Resultados.aspx guarda en sesión la ÚLTIMA consulta exitosa. Si la consulta actual no
@@ -572,6 +573,7 @@
             let d;
             try { d = JSON.parse(r.responseText || ''); } catch (e) { return null; }
             if (!d || typeof d !== 'object') return null;
+            console.log('[Autocompletar cédula][DIAGNÓSTICO] Supersalud, respuesta completa:', JSON.stringify(d));
 
             return {
                 apellidos: unir(d.apellido, d.s_apellido),
