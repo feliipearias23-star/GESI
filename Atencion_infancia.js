@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         UNIDADES ATENCIÓN INFANCIA
 // @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
-// @version      2026.10.19.1
+// @version      2026.10.19.2
 // @description  Caracterización Unidades Atención Infancia: cascadas por tipo de documento, cascada sexo/género/identidad/orientación según edad, validador edad/documento con corrección automática, alertas prioritarias en "No aplica" por defecto y autocompletado por cédula (Comprobador de Derechos + Supersalud)
 // @author       You
 // @match        https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
@@ -532,8 +532,26 @@
 
             const r3 = await gmRequest({ method: 'GET', url: BASE_COMPROBADOR + 'Resultados.aspx' });
             const doc = new DOMParser().parseFromString(r3.responseText || '', 'text/html');
-            const r = parseTablasComprobador(doc)[0];
-            if (!r) return null;
+            const registros = parseTablasComprobador(doc);
+            if (!registros.length) return null;
+
+            // Resultados.aspx guarda en sesión la ÚLTIMA consulta exitosa. Si la consulta actual no
+            // quedó registrada, devolvería a la persona anterior. Por eso se exige que el número de
+            // documento del resultado sea el consultado.
+            const quitarCeros = (s) => String(s || '').replace(/\D/g, '').replace(/^0+/, '');
+            const esperado = quitarCeros(documento);
+            const claveNumero = (reg) => Object.keys(reg).find((k) => /(identific|documento|n[uú]mero|n[uú]m\b|cedula|^id$)/i.test(k) && quitarCeros(reg[k]));
+            const verificables = registros.filter((reg) => claveNumero(reg));
+            let r;
+            if (verificables.length) {
+                r = verificables.find((reg) => quitarCeros(reg[claveNumero(reg)]) === esperado);
+                if (!r) {
+                    console.warn('[Autocompletar cédula] El Comprobador devolvió otra persona (resultado anterior); se descarta.');
+                    return null;
+                }
+            } else {
+                r = registros[0]; // sin columna de número no se puede verificar
+            }
 
             return {
                 apellidos: unir(r['Primer Apellido'], r['Segundo Apellido']),
@@ -624,8 +642,27 @@
 
         // ---------- Disparo ----------
         let running = false;
+        let pendiente = false; // la cédula cambió mientras se consultaba: hay que volver a consultar
         let lastClave = '';
         let avisoCamposFaltantes = false;
+
+        // Cédula y tipo de documento que hay en el formulario en este momento
+        function claveActual() {
+            const c = getCampo('cedula');
+            const t = getCampo('tipo_doc');
+            return (t ? String(t.value || '') : '') + '|' + (c ? (c.value || '').trim() : '');
+        }
+
+        // Vacía nombres y fecha para no dejar datos de la persona anterior
+        function limpiarDatosPersona() {
+            autocompletando = true;
+            try {
+                setValue('nombres', '');
+                setValue('fecha', '');
+            } finally {
+                autocompletando = false;
+            }
+        }
 
         async function tryAutofill() {
             const cedEl = getCampo('cedula');
@@ -633,7 +670,7 @@
 
             const cedula = (cedEl.value || '').trim();
             if (!cedula) return;
-            if (running) return;
+            if (running) { pendiente = true; return; }
 
             // Ayuda de diagnóstico: si algún ID de destino no existe en la página, se avisa en consola
             if (!avisoCamposFaltantes) {
@@ -660,7 +697,17 @@
 
             try {
                 const { persona, motivoSexo } = await buscarPersona(documento, tipoDoc);
+
+                // Si mientras se consultaba cambiaron la cédula o el tipo, el resultado es de otra
+                // persona: se descarta y se vuelve a consultar con lo que hay ahora.
+                if (claveActual() !== clave) {
+                    lastClave = '';
+                    pendiente = true;
+                    return;
+                }
+
                 if (!persona) {
+                    limpiarDatosPersona();
                     showManualAlert();
                     return;
                 }
@@ -678,9 +725,14 @@
                     autocompletando = false;
                 }
             } catch (e) {
+                if (claveActual() === clave) limpiarDatosPersona();
                 showManualAlert();
             } finally {
                 running = false;
+                if (pendiente) {
+                    pendiente = false;
+                    schedule();
+                }
             }
         }
 
