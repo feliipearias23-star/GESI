@@ -327,7 +327,7 @@
     let t = null;
     const schedule = () => {
         clearTimeout(t);
-        t = setTimeout(tryAutofill, 2500);
+        t = setTimeout(tryAutofill, 5000);
     };
 
     // Los eventos se escuchan en el documento (fase de captura) y se filtran por campo,
