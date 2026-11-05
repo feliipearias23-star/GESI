@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Instituciones de Protección y Atención 
 // @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
-// @version      2026.10.30.7
-// @description  Instituciones de Protección y Atención: valores por defecto, cascadas documento/sexo/género, validador edad/documento, autocompletado por cédula (incluye afiliación y EAPB), alertas en "No aplica", campos de Evaluación bloqueados hasta que haya Fecha Evaluación y secciones 7-9 en "No"
+// @version      2026.11.05.1
+// @description  Instituciones de Protección y Atención: valores por defecto, cascadas documento/sexo/género, validador edad/documento, autocompletado por cédula (incluye afiliación y EAPB), alertas en "No aplica", campos de Evaluación en "Seleccione", no obligatorios y bloqueados hasta que haya Fecha Evaluación, y secciones 7-9 en "No"
 // @author       You
 // @match        https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
@@ -63,8 +63,104 @@
         try { fn(); } catch (error) { console.error('[' + nombre + ']', error); }
     }
 
-    // Selects de Evaluación de las secciones 7, 8 y 9: los registra el bloque 6 y los bloquea/habilita el bloque 5
+    // ── Compartido por los bloques 4, 5 y 6 (Evaluación) ──────────────────
+    // Selects de Evaluación (alertas y secciones 7-9): los registran los bloques 4 y 6 y los bloquea/limpia el bloque 5
     const selectsEvaluacion = new Set();
+    // Selects de Evaluación ya atendidos (rellenados por el script o cambiados a mano). El bloque 5 los saca
+    // de aquí cuando los limpia por falta de fecha, para que se rellenen de nuevo si la fecha vuelve a aparecer.
+    const atendidosEval = new WeakSet();
+
+    const RE_FECHA_EVAL = /Fecha\s+Evaluaci[oó]n/i;
+    const RE_ETIQ = /^[*\s]*(Caracterizaci[oó]n|Evaluaci[oó]n)/i;
+    const RE_RUIDO = /^[*\[\]?().\s]*$/;
+    let fechaEvalEl = null;
+
+    // Primer input visible después de la etiqueta "Fecha Evaluación"
+    function buscarFechaEval() {
+        const w = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+        let encontrada = false, n;
+        while ((n = w.nextNode())) {
+            if (!encontrada) {
+                if (n.nodeType === 3 && RE_FECHA_EVAL.test(n.nodeValue || '')) encontrada = true;
+                continue;
+            }
+            if (n.nodeType === 1 && n.tagName === 'INPUT' && n.type !== 'hidden') return n;
+        }
+        return null;
+    }
+    function hayFechaEvaluacion() {
+        if (!fechaEvalEl || !fechaEvalEl.isConnected) fechaEvalEl = buscarFechaEval();
+        return !!fechaEvalEl && String(fechaEvalEl.value || '').trim() !== '';
+    }
+
+    // Opción vacía real de un select: value '' o texto "Seleccione"
+    function opcionVacia(sel) {
+        return Array.from(sel.options).find((o) => o.value === '' || /^\s*seleccione/i.test(o.text)) || null;
+    }
+    function estaVacio(sel) {
+        if (sel.multiple) return sel.selectedOptions.length === 0;
+        if (sel.selectedIndex < 0) return true;
+        const v = opcionVacia(sel);
+        return !!v && sel.value === v.value;
+    }
+    // Devuelve el select a "Seleccione" (o lo deja sin selección si es múltiple). true si cambió algo.
+    function vaciarSelect(sel) {
+        if (estaVacio(sel)) return false;
+        if (sel.multiple) {
+            Array.from(sel.options).forEach((o) => { o.selected = false; });
+        } else {
+            const v = opcionVacia(sel);
+            if (!v) return false;
+            sel.value = v.value;
+        }
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+    }
+    // Evaluación no es obligatoria: se le quita cualquier marca de requerido
+    function quitarObligatorio(el) {
+        if (el.required || el.hasAttribute('required') || el.hasAttribute('aria-required')) {
+            el.required = false;
+            el.removeAttribute('required');
+            el.removeAttribute('aria-required');
+        }
+    }
+
+    // Retrocede desde el select: etiqueta (Caracterización/Evaluación), título de la fila y número de sección.
+    // Si antes de la etiqueta aparece otro campo, el select no es de Caracterización/Evaluación (devuelve null).
+    function analizar(sel) {
+        const w = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+        w.currentNode = sel;
+        let etiqueta = null, titulo = null, seccion = null;
+        for (let i = 0; i < 8000; i++) {
+            const n = w.previousNode();
+            if (!n) break;
+            if (n.nodeType === 1) {
+                const tag = n.tagName;
+                if (!etiqueta && (tag === 'SELECT' || tag === 'TEXTAREA' || (tag === 'INPUT' && n.type !== 'hidden'))) return null;
+                continue;
+            }
+            const t = (n.nodeValue || '').trim();
+            if (!t) continue;
+            if (!etiqueta) { if (RE_ETIQ.test(t)) etiqueta = t; continue; }
+            if (!titulo) {
+                if (RE_ETIQ.test(t) || RE_RUIDO.test(t)) continue;
+                titulo = t;
+            }
+            const m = /^(\d{1,2})\.\s+\S/.exec(t);
+            if (m) { seccion = parseInt(m[1], 10); break; }
+        }
+        return etiqueta ? { etiqueta: etiqueta, titulo: titulo, seccion: seccion } : null;
+    }
+    function esEtiquetaEvaluacion(etiqueta) { return /^[*\s]*Evaluaci[oó]n/i.test(etiqueta || ''); }
+    function esSelectEvaluacion(sel) {
+        const info = analizar(sel);
+        return !!info && esEtiquetaEvaluacion(info.etiqueta);
+    }
+
+    // Si el usuario cambia a mano un select de Evaluación, el script no vuelve a rellenarlo
+    document.addEventListener('change', (e) => {
+        if (e.isTrusted && e.target && selectsEvaluacion.has(e.target)) atendidosEval.add(e.target);
+    }, true);
 
     // ════════════════════════════════════════════════════════════════════
     // REGLAS (edite aquí si alguna no es la que usa)
@@ -245,7 +341,7 @@
 
         const limpio = (v) => String(v == null ? '' : v).trim();
         const quitarCeros = (s) => String(s == null ? '' : s).replace(/\D/g, '').replace(/^0+/, '');
-        const normTexto = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+        const normTexto = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
             .toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
 
         function setValue(clave, value) {
@@ -303,7 +399,6 @@
                 .toUpperCase().split(/\s+/).filter(Boolean).sort().join(' ');
         }
         function numeroCoincide(d, documento) {
-            const quitarCeros = (s) => String(s).replace(/\D/g, '').replace(/^0+/, '');
             const esperado = quitarCeros(documento);
             for (const [k, v] of Object.entries(d)) {
                 if (!/(identific|documento|numero|nro|cedula|^id$)/i.test(k)) continue;
@@ -402,16 +497,16 @@
                 __VIEWSTATEGENERATOR: extraerCampo(html1, '__VIEWSTATEGENERATOR'),
                 __PREVIOUSPAGE: extraerCampo(html1, '__PREVIOUSPAGE'),
                 __EVENTVALIDATION: extraerCampo(html1, '__EVENTVALIDATION'),
-                'ctl00$MainContent$txtConsecutivo': '',
-                'ctl00$MainContent$txtNoId': documento,
-                'ctl00$MainContent$txtFichaSisben': '',
-                'ctl00$MainContent$txtPriApellido': '',
-                'ctl00$MainContent$txtSegApellido': '',
-                'ctl00$MainContent$txtPriNombre': '',
-                'ctl00$MainContent$txtSegNombre': '',
-                'ctl00$ctl12': 'ctl00$MainContent$cmdConsultar',
+                'ctl00MainContenttxtConsecutivo': '',
+                'ctl00MainContenttxtNoId': documento,
+                'ctl00MainContenttxtFichaSisben': '',
+                'ctl00MainContenttxtPriApellido': '',
+                'ctl00MainContenttxtSegApellido': '',
+                'ctl00MainContenttxtPriNombre': '',
+                'ctl00MainContenttxtSegNombre': '',
+                'ctl00ctl12':'ctl00MainContent$cmdConsultar',
                 __ASYNCPOST: 'true',
-                'ctl00$MainContent$cmdConsultar': 'Consultar',
+                'ctl00MainContentcmdConsultar': 'Consultar',
             }).toString();
 
             const r2 = await gmRequest({
@@ -659,7 +754,8 @@
 
     // ════════════════════════════════════════════════════════════════════
     // BLOQUE 4 — ALERTAS: "No aplica" POR DEFECTO (Caracterización y Evaluación)
-    // Solo en registros nuevos (documento vacío) y solo si el select está vacío.
+    // Caracterización: solo en registros nuevos (documento vacío) y solo si el select está vacío.
+    // Evaluación: solo cuando ya hay Fecha Evaluación y el select está vacío; sin fecha queda en "Seleccione".
     // Si el usuario cambia la selección a mano, el script no vuelve a tocarla.
     // ════════════════════════════════════════════════════════════════════
     ejecutarSeguro('Alertas No aplica', function () {
@@ -676,23 +772,40 @@
             'valorControl18325', 'valorControl18328',   // Alertas discapacidad - limitaciones
         ];
         const RE_NO_APLICA = /no\s*aplica/i;
-        const atendidos = new WeakSet();
+        const atendidos = new WeakSet();     // alertas de Caracterización ya atendidas
+        const escuchados = new WeakSet();
+        const evalCache = new WeakMap();     // select -> true/false (¿es de Evaluación?)
 
         function procesar() {
             const ced = getCampo('cedula');
             const registroNuevo = !!ced && String(ced.value || '').trim() === '';
+            const hayFecha = hayFechaEvaluacion();
+
             IDS_ALERTAS.forEach((id) => {
                 const sel = document.getElementById(id);
-                if (!sel || !sel.isConnected || atendidos.has(sel)) return;
-                sel.addEventListener('change', (e) => { if (e.isTrusted) atendidos.add(sel); });
-                if (!registroNuevo) return;
-                if (sel.selectedOptions.length > 0) { atendidos.add(sel); return; }
+                if (!sel || !sel.isConnected) return;
+
+                let esEval = evalCache.get(sel);
+                if (esEval === undefined) { esEval = esSelectEvaluacion(sel); evalCache.set(sel, esEval); }
+                if (esEval) selectsEvaluacion.add(sel);      // el bloque 5 lo bloquea/limpia sin fecha
+
+                const hechos = esEval ? atendidosEval : atendidos;
+                if (hechos.has(sel)) return;
+                if (!escuchados.has(sel)) {
+                    escuchados.add(sel);
+                    sel.addEventListener('change', (e) => { if (e.isTrusted) hechos.add(sel); });
+                }
+
+                if (esEval && !hayFecha) return;             // sin fecha: queda en "Seleccione" y se reintenta
+                if (!estaVacio(sel)) { hechos.add(sel); return; }
+                if (!esEval && !registroNuevo) return;
+
                 const op = Array.from(sel.options).find((o) => RE_NO_APLICA.test(o.text));
                 if (!op) return;
                 op.selected = true;
                 sel.dispatchEvent(new Event('change', { bubbles: true }));
-                sel.style.backgroundColor = bgSuccess;
-                atendidos.add(sel);
+                if (!esEval) sel.style.backgroundColor = bgSuccess;   // las de Evaluación conservan el gris del bloqueo
+                hechos.add(sel);
             });
         }
         setInterval(procesar, 500);
@@ -700,21 +813,22 @@
     });
 
     // ════════════════════════════════════════════════════════════════════
-    // BLOQUE 5 — EVALUACIÓN: CAMPOS BLOQUEADOS HASTA QUE HAYA "Fecha Evaluación"
-    // Sin fecha: los campos de Evaluación (numéricos y las listas de las secciones 7-9) quedan bloqueados (grises).
+    // BLOQUE 5 — EVALUACIÓN: "SELECCIONE", NO OBLIGATORIA Y BLOQUEADA HASTA QUE HAYA "Fecha Evaluación"
+    // Sin fecha: los campos de Evaluación (numéricos y listas de alertas y secciones 7-9) quedan vacíos
+    //   ("Seleccione"), bloqueados (grises) y sin marca de obligatorio, para poder guardar así.
     // Con fecha: se habilitan para diligenciarlos, y a la vez se bloquean TODOS los campos de Caracterización.
-    // Si se borra la fecha, vuelve cada grupo a su estado anterior. Ya no se escribe 0.
+    // Si se borra la fecha, la Evaluación vuelve a "Seleccione" y la Caracterización se desbloquea.
     // ════════════════════════════════════════════════════════════════════
     ejecutarSeguro('Evaluación bloqueada sin fecha', function () {
-        const RE_FECHA_EVAL = /Fecha\s+Evaluaci[oó]n/i;
         const RE_EVALUACION = /Evaluaci[oó]n/i;
         const RE_CARACT = /Caracterizaci[oó]n/i;
+        const RE_ETIQ_CARACT = /^[*\s]*Caracterizaci[oó]n/i;
         const BG_BLOQUEADO = '#eeeeee';
         const camposEval = new WeakSet();   // inputs ya identificados como Evaluación
         const revisados = new WeakSet();    // inputs ya analizados (sean o no de Evaluación)
-        let fechaEl = null;
+        const caractCache = new WeakMap();  // campo -> true/false (ya analizado como Caracterización)
 
-        // Un select bloqueado no recibe clic ni teclado (no se usa "disabled" para no alterar el envío del formulario)
+        // Un campo bloqueado no recibe clic ni teclado (no se usa "disabled" para no alterar el envío del formulario)
         ['mousedown', 'keydown'].forEach((ev) => {
             document.addEventListener(ev, (e) => {
                 const t = e.target;
@@ -730,18 +844,14 @@
                 sel.setAttribute('data-eval-bloq', '1');
                 sel.style.pointerEvents = 'none';
                 sel.tabIndex = -1;
-                sel.style.backgroundColor = BG_BLOQUEADO;
             } else if (!bloquear && bloqueado) {
                 sel.removeAttribute('data-eval-bloq');
                 sel.style.pointerEvents = '';
                 sel.removeAttribute('tabindex');
                 sel.style.backgroundColor = '';
             }
+            if (bloquear) sel.style.backgroundColor = BG_BLOQUEADO;
         }
-
-        // ---- Caracterización: se bloquea cuando "Fecha Evaluación" ya está diligenciada ----
-        const RE_ETIQ_CARACT = /^[*\s]*Caracterizaci[oó]n/i;
-        const caractCache = new WeakMap();   // campo -> true/false (ya analizado)
 
         // Retrocede desde el campo hasta su etiqueta: "Caracterización (.)" -> true.
         // "Fecha Caracterización", "Evaluación" u otro campo antes de la etiqueta -> false.
@@ -780,20 +890,6 @@
             }
         }
 
-        // Localiza el input de "Fecha Evaluación": el primer input visible después de esa etiqueta
-        function buscarFechaEval() {
-            const w = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
-            let encontrada = false, n;
-            while ((n = w.nextNode())) {
-                if (!encontrada) {
-                    if (n.nodeType === 3 && RE_FECHA_EVAL.test(n.nodeValue || '')) encontrada = true;
-                    continue;
-                }
-                if (n.nodeType === 1 && n.tagName === 'INPUT' && n.type !== 'hidden') return n;
-            }
-            return null;
-        }
-
         // Retrocede desde el input hasta la etiqueta; si antes aparece otro campo, no es de Evaluación
         function esEvaluacion(input) {
             const w = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
@@ -817,10 +913,11 @@
         }
 
         function procesar() {
-            if (!fechaEl || !fechaEl.isConnected) fechaEl = buscarFechaEval();
+            const hayFecha = hayFechaEvaluacion();
+            const fechaEl = fechaEvalEl;
             if (!fechaEl) return;                       // sin fecha localizada, no se bloquea nada
-            const hayFecha = String(fechaEl.value || '').trim() !== '';
 
+            // Campos numéricos/texto de Evaluación
             document.querySelectorAll('input[type="text"], input[type="number"]').forEach((input) => {
                 if (!input.isConnected || input.offsetParent === null || input === fechaEl) return;
                 if (!revisados.has(input)) {
@@ -829,6 +926,7 @@
                 }
                 if (!camposEval.has(input)) return;
 
+                quitarObligatorio(input);
                 if (hayFecha) {
                     if (input.readOnly) { input.readOnly = false; input.style.backgroundColor = ''; }
                 } else if (!input.readOnly) {
@@ -837,9 +935,12 @@
                 }
             });
 
-            // Selects de Evaluación de las secciones 7-9 (los registra el bloque 6)
+            // Listas de Evaluación (alertas y secciones 7-9, registradas por los bloques 4 y 6):
+            // nunca obligatorias; sin fecha vuelven a "Seleccione" y quedan bloqueadas
             selectsEvaluacion.forEach((sel) => {
                 if (!sel.isConnected) { selectsEvaluacion.delete(sel); return; }
+                quitarObligatorio(sel);
+                if (!hayFecha && vaciarSelect(sel)) atendidosEval.delete(sel);   // podrá rellenarse si vuelve la fecha
                 bloquearSelect(sel, !hayFecha);
             });
 
@@ -857,57 +958,37 @@
     // ════════════════════════════════════════════════════════════════════
     // BLOQUE 6 — SECCIONES 7, 8 Y 9: "No" POR DEFECTO (Caracterización y Evaluación)
     // Solo selects vacíos dentro de esas secciones. No llena "Otro, ¿cuál?".
-    // Los selects de Evaluación además se registran para que el bloque 5 los bloquee sin Fecha Evaluación.
+    // Los selects de Evaluación solo se llenan cuando ya hay Fecha Evaluación; sin fecha se registran para
+    // que el bloque 5 los deje en "Seleccione" y bloqueados.
     // ════════════════════════════════════════════════════════════════════
     ejecutarSeguro('Secciones 7-9 en No', function () {
         const SECCIONES = [7, 8, 9];
-        const RE_ETIQ = /^[*\s]*(Caracterizaci[oó]n|Evaluaci[oó]n)/i;
-        const RE_RUIDO = /^[*\[\]?().\s]*$/;
         const RE_NO = /^\s*no\s*$/i;
         const EXCLUIR_IDS = [];   // si alguno queda mal, agregue aquí su id y se omite
-        const atendidos = new WeakSet();
-
-        // Retrocede en el documento desde el select: etiqueta (Caracterización/Evaluación), título de la fila y número de sección.
-        // Si antes de la etiqueta aparece otro campo, el select no es de Caracterización/Evaluación.
-        function analizar(sel) {
-            const w = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
-            w.currentNode = sel;
-            let etiqueta = null, titulo = null, seccion = null;
-            for (let i = 0; i < 8000; i++) {
-                const n = w.previousNode();
-                if (!n) break;
-                if (n.nodeType === 1) {
-                    const tag = n.tagName;
-                    if (!etiqueta && (tag === 'SELECT' || tag === 'TEXTAREA' || (tag === 'INPUT' && n.type !== 'hidden'))) return null;
-                    continue;
-                }
-                const t = (n.nodeValue || '').trim();
-                if (!t) continue;
-                if (!etiqueta) { if (RE_ETIQ.test(t)) etiqueta = t; continue; }
-                if (!titulo) {
-                    if (RE_ETIQ.test(t) || RE_RUIDO.test(t)) continue;
-                    titulo = t;
-                }
-                const m = /^(\d{1,2})\.\s+\S/.exec(t);
-                if (m) { seccion = parseInt(m[1], 10); break; }
-            }
-            return etiqueta ? { etiqueta: etiqueta, titulo: titulo, seccion: seccion } : null;
-        }
+        const atendidos = new WeakSet();     // selects de Caracterización ya atendidos
+        const infoCache = new WeakMap();     // select -> resultado de analizar() (null si no aplica)
 
         function procesar() {
+            const hayFecha = hayFechaEvaluacion();
+
             document.querySelectorAll('select:not([multiple])').forEach((sel) => {
-                if (atendidos.has(sel) || !sel.isConnected || sel.offsetParent === null) return;
+                if (!sel.isConnected || sel.offsetParent === null) return;
                 if (EXCLUIR_IDS.includes(sel.id) || sel.disabled) return;
-                atendidos.add(sel);
 
-                const info = analizar(sel);
+                let info = infoCache.get(sel);
+                if (info === undefined) { info = analizar(sel); infoCache.set(sel, info); }
                 if (!info || !SECCIONES.includes(info.seccion)) return;
-                // Evaluación: también se llena con "No", y además se registra para que el bloque 5 la bloquee sin Fecha Evaluación
-                const esEval = /^[*\s]*Evaluaci[oó]n/i.test(info.etiqueta);
-                if (esEval) selectsEvaluacion.add(sel);
-                if (info.titulo && /^\s*Otro/i.test(info.titulo)) return;   // fila "Otro, ¿cuál?": se bloquea pero no se llena
 
-                if (sel.value !== '') return;                                // ya tiene Sí/No: no se pisa
+                const esEval = esEtiquetaEvaluacion(info.etiqueta);
+                if (esEval) {
+                    selectsEvaluacion.add(sel);                  // el bloque 5 lo bloquea/limpia sin fecha
+                    if (!hayFecha || atendidosEval.has(sel)) return;
+                } else if (atendidos.has(sel)) return;
+                const hechos = esEval ? atendidosEval : atendidos;
+
+                hechos.add(sel);
+                if (info.titulo && /^\s*Otro/i.test(info.titulo)) return;   // fila "Otro, ¿cuál?": no se llena
+                if (!estaVacio(sel)) return;                                 // ya tiene Sí/No: no se pisa
                 const op = Array.from(sel.options).find((o) => RE_NO.test(o.text));
                 if (!op) return;
                 sel.value = op.value;
