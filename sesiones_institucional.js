@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         SESIONES INSTITUCIONAL+
+// @name         SESIONES INSTITUCIONAL
 // @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
-// @version      2026.11.06.4
-// @description  Institucional: valores por defecto, cascadas documento/sexo/género, sesiones, validador edad/documento, autocompletado por cédula (Comprobador de Derechos + Supersalud), aviso de Tema opcional (líneas 5 y 6), bloqueo de Nombre del grupo y verificador de documentos repetidos (Salud Oral)
+// @version      2026.11.11.1
+// @description  Institucional: valores por defecto, cascadas documento/sexo/género, sesiones, validador edad/documento, autocompletado por cédula (Comprobador de Derechos + Supersalud), aviso de Tema opcional (líneas 5 y 6), bloqueo de Nombre del grupo y coherencias (Discapacidad vs Categoría, FIES desde 65 años)
 // @author       You
 // @match        https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
@@ -45,9 +45,15 @@
         rol_institucion: 'valorControl19146',
         canalizacion: 'valorControl19148',
         porquenosecanalizo: 'valorControl19149',
+        // Escala FIES: si se conoce el ID, escríbalo aquí (ej. 'valorControl12345').
+        // Mientras esté vacío, el campo se ubica por su etiqueta ("FIES").
+        fies: '',
     };
 
     function getCampo(clave) { return document.querySelector('#' + IDS[clave]); }
+
+    // Campo de edad (mismo criterio para el cascada de sexo, el validador y las coherencias)
+    function getEdad() { return getCampo('edad') || document.querySelector('[id*="' + IDS.edad + '"]'); }
 
     // Busca un campo por su ID exacto y, si no existe, por un ID que lo contenga (sin contar inputs hidden)
     function buscarPorId(id) {
@@ -78,6 +84,34 @@
         try { fn(); } catch (error) { console.error('[' + nombre + ']', error); }
     }
 
+    // Texto sin tildes, en minúscula y con espacios normalizados (para comparar etiquetas y opciones)
+    const sinTildes = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+    // Texto visible de lo elegido (en un select, el de la opción; en otro campo, su valor)
+    function textoElegido(campo) {
+        if (campo.tagName === 'SELECT') {
+            const op = campo.options[campo.selectedIndex];
+            return op ? op.text : '';
+        }
+        return campo.value;
+    }
+
+    // ¿El campo está sin diligenciar? (vacío, 0, -1 o la opción "Seleccione")
+    function estaVacio(campo) {
+        if (!campo) return true;
+        const v = String(campo.value ?? '').trim();
+        if (v === '' || v === '0' || v === '-1') return true;
+        if (campo.tagName === 'SELECT') {
+            const op = campo.options[campo.selectedIndex];
+            return !!op && /^(--+\s*)?(seleccion|select|escoja|elija|ninguno)/.test(sinTildes(op.text));
+        }
+        return false;
+    }
+
+    // ¿El texto es una opción "No aplica"? (acepta numeración previa: "6. No aplica (...)")
+    const esNoAplicaTexto = (t) => /^(\d+\s*[.\-)]\s*)?no aplica/.test(sinTildes(t));
+    const esNoAplica = (campo) => !!campo && esNoAplicaTexto(textoElegido(campo));
+
     // Avisos visuales (un solo lugar para el estilo de todos los mensajes del script)
     const ESTILOS_AVISO = {
         error: { color: '#b30000', background: '#ffe6e6', border: '1px solid #ff9999' },
@@ -90,6 +124,47 @@
         div.textContent = texto;
         Object.assign(div.style, ESTILOS_AVISO[tipo], { padding: '6px', marginTop: '4px', borderRadius: '4px', fontSize: '12px' });
         return div;
+    }
+
+    // Mantiene UN aviso de la clase dada junto al campo "ancla": lo crea, lo actualiza o lo quita (texto vacío)
+    function sincronizarAviso(ancla, clase, tipo, texto) {
+        if (!ancla || !ancla.parentNode) return;
+        const previos = Array.from(ancla.parentNode.children).filter((h) => h.classList.contains(clase));
+        if (!texto) { previos.forEach((a) => a.remove()); return; }
+        if (previos.length === 1) {
+            if (previos[0].textContent !== texto) previos[0].textContent = texto;
+            return;
+        }
+        previos.forEach((a) => a.remove());
+        ancla.parentNode.appendChild(crearAviso(tipo, texto, clase));
+    }
+
+    function quitarAvisos(clase) {
+        document.querySelectorAll('.' + clase).forEach((a) => a.remove());
+    }
+
+    // Marca (o desmarca) un campo en rojo por incoherencia; solo limpia lo que él mismo marcó
+    function marcarIncoherente(campo, activo) {
+        if (!campo) return;
+        if (activo) {
+            campo.dataset.incoherente = '1';
+            campo.style.border = '2px solid red';
+            campo.style.backgroundColor = '#fff0f0';
+        } else if (campo.dataset.incoherente === '1') {
+            delete campo.dataset.incoherente;
+            campo.style.border = '';
+            campo.style.backgroundColor = '';
+        }
+    }
+
+    // Ejecuta una revisión ahora, tras cada evento del usuario y cada 500 ms
+    // (GESI cambia valores por JS sin avisar, por eso el respaldo por intervalo)
+    function vigilar(fn, ms) {
+        ['change', 'input', 'keyup', 'click', 'blur'].forEach((ev) => {
+            document.addEventListener(ev, () => setTimeout(fn, 0), true);
+        });
+        setInterval(fn, ms || 500);
+        fn();
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -145,9 +220,8 @@
         };
         const CASCADA_MENORES = { genero: '4513', orientacion: '4028', identidad_genero: '4020' };
 
-        // Campo de edad (mismo criterio que el validador). Se busca como máximo cada 500 ms
-        // mientras no exista, para no recorrer la página en cada revisión.
-        const getEdad = () => getCampo('edad') || document.querySelector('[id*="' + IDS.edad + '"]');
+        // Campo de edad: se busca como máximo cada 500 ms mientras no exista,
+        // para no recorrer la página en cada revisión.
         let edadEl = getEdad();
         let ultimaBusquedaEdad = Date.now();
 
@@ -565,7 +639,7 @@
 
         // ---------- Aviso debajo del campo Sexo ----------
         function quitarAvisoSexo() {
-            document.querySelectorAll('.' + CLASE_AVISO_SEXO).forEach((a) => a.remove());
+            quitarAvisos(CLASE_AVISO_SEXO);
         }
 
         function mostrarAvisoSexo(motivo) {
@@ -818,10 +892,9 @@
     }); // fin autocompletarPorCedula
 
     // ════════════════════════════════════════════════════════════════════
-    // AYUDANTES DE UBICACIÓN POR ETIQUETA (para bloques 5 y 6)
+    // AYUDANTES DE UBICACIÓN POR ETIQUETA (para bloques 5, 6 y 7)
     // ════════════════════════════════════════════════════════════════════
     const CONTROL_SEL = 'input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea';
-    const sinTildes = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
     function controlDespuesDe(etiqueta) {
         if (etiqueta.htmlFor) {
@@ -864,14 +937,6 @@
         const CLASE_AVISO = 'aviso-tema-opcional';
         let logHecho = false;
 
-        function textoElegido(campo) {
-            if (campo.tagName === 'SELECT') {
-                const op = campo.options[campo.selectedIndex];
-                return op ? op.text : '';
-            }
-            return campo.value;
-        }
-
         function numeroLinea(campo) {
             if (!campo) return null;
             const texto = String(textoElegido(campo) || '').trim();
@@ -879,17 +944,6 @@
             let n = m ? parseInt(m[1], 10) : NaN;
             if (isNaN(n) && /^\d+$/.test(String(campo.value || '').trim())) n = parseInt(campo.value, 10);
             return LINEAS_SIN_TEMA.includes(n) ? n : null;
-        }
-
-        function estaVacio(campo) {
-            if (!campo) return true; // si no se ubica el Tema, se avisa igual
-            const v = String(campo.value ?? '').trim();
-            if (v === '' || v === '0' || v === '-1') return true;
-            if (campo.tagName === 'SELECT') {
-                const op = campo.options[campo.selectedIndex];
-                return !!op && /^\s*(--+\s*)?(seleccion|select|escoja|elija|ninguno)/i.test(op.text);
-            }
-            return false;
         }
 
         function evaluar() {
@@ -907,74 +961,170 @@
             }
 
             const n = numeroLinea(campoLinea);
-            const avisos = document.querySelectorAll('.' + CLASE_AVISO);
 
+            // Si no se ubica el Tema, se avisa igual (estaVacio(null) = true)
             if (!campoLinea || n === null || !estaVacio(campoTema)) {
-                avisos.forEach((a) => a.remove());
+                quitarAvisos(CLASE_AVISO);
                 return;
             }
 
-            const texto = `ℹ Línea operativa ${n}: el campo Tema no es obligatorio. Si no lo trae, puede dejarlo sin diligenciar.`;
-            if (avisos.length === 1 && avisos[0].parentNode === campoLinea.parentNode) {
-                if (avisos[0].textContent !== texto) avisos[0].textContent = texto;
-                return;
-            }
-            avisos.forEach((a) => a.remove());
-            campoLinea.parentNode.appendChild(crearAviso('info', texto, CLASE_AVISO));
+            sincronizarAviso(campoLinea, CLASE_AVISO, 'info',
+                `ℹ Línea operativa ${n}: el campo Tema no es obligatorio. Si no lo trae, puede dejarlo sin diligenciar.`);
         }
 
-        ['change', 'input', 'keyup', 'click', 'blur'].forEach((ev) => {
-            document.addEventListener(ev, () => setTimeout(evaluar, 0), true);
-        });
-        setInterval(evaluar, 500);
-        evaluar();
+        vigilar(evaluar);
     }); // fin avisoTemaOpcional
 
+   // ════════════════════════════════════════════════════════════════════
+// BLOQUE 6 — BLOQUEAR "NOMBRE DEL GRUPO" (solo base Institucional)
+// Se identifica ÚNICAMENTE por su ID (IDS.nombre_grupo = valorControl18976).
+// No se usa la etiqueta: otras bases tienen un campo con el mismo nombre y no deben bloquearse.
+// ════════════════════════════════════════════════════════════════════
+ejecutarSeguro('Bloqueo nombre del grupo', function bloquearNombreGrupo() {
+
+    const ID_GRUPO = IDS.nombre_grupo;          // 'valorControl18976'
+    if (!ID_GRUPO) return;
+
+    // ID exacto, o el mismo ID seguido de un sufijo que NO empiece por dígito (ej. _1, -2)
+    const reId = new RegExp('^' + ID_GRUPO + '(?![0-9])');
+
+    function localizar() {
+        const exacto = document.getElementById(ID_GRUPO);
+        if (exacto) return exacto;
+        return Array.from(document.querySelectorAll('[id^="' + ID_GRUPO + '"]'))
+            .find((el) => reId.test(el.id) && el.type !== 'hidden') || null;
+    }
+
+    function bloquear(campo) {
+        if (campo.value !== '') {
+            if (campo.tagName === 'SELECT') campo.selectedIndex = 0; else campo.value = '';
+            campo.dispatchEvent(new Event('input', { bubbles: true }));
+            campo.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        if (campo.dataset.bloqueadoPorScript === '1') return;
+        campo.dataset.bloqueadoPorScript = '1';
+        console.log('[Nombre del grupo] bloqueado:', campo.id);
+        campo.readOnly = true;
+        campo.tabIndex = -1;
+        campo.title = 'Este formato no lleva Nombre del grupo';
+        Object.assign(campo.style, { backgroundColor: '#e0e0e0', cursor: 'not-allowed', pointerEvents: 'none' });
+        campo.addEventListener('mousedown', (e) => e.preventDefault());
+        campo.addEventListener('keydown', (e) => e.preventDefault());
+    }
+
+    let campoGrupo = null;
+    function revisar() {
+        if (!campoGrupo || !campoGrupo.isConnected) campoGrupo = localizar();
+        if (campoGrupo) bloquear(campoGrupo);
+        // En otras bases el ID no existe: no se hace nada (ni siquiera avisos en consola).
+    }
+
+    setInterval(revisar, 700);
+    revisar();
+}); // fin bloquearNombreGrupo
+
     // ════════════════════════════════════════════════════════════════════
-    // BLOQUE 6 — BLOQUEAR "NOMBRE DEL GRUPO"
-    // Se localiza por IDS.nombre_grupo (valorControl18976) o, si no aparece, por la etiqueta.
+    // BLOQUE 7 — COHERENCIAS ENTRE CAMPOS
+    //  a) Población diferencial = Discapacidad  →  la Categoría de discapacidad NO puede
+    //     quedar vacía ni en "No aplica" (se marcan en rojo ambos campos y se avisa).
+    //     Funciona con una o varias personas en la página (se emparejan por orden).
+    //  b) Escala FIES: solo aplica desde los 65 años. Con edad menor:
+    //     - si está vacía, se deja en "No aplica" automáticamente;
+    //     - si tiene otro valor, se marca en rojo y se avisa (no se pisa lo digitado).
+    //     La edad sale del campo Edad o, si no existe, de la fecha de nacimiento.
     // ════════════════════════════════════════════════════════════════════
-    ejecutarSeguro('Bloqueo nombre del grupo', function bloquearNombreGrupo() {
+    ejecutarSeguro('Coherencias', function coherencias() {
 
-        let campoGrupo = null;
-        let avisoConsola = false;
-        const t0 = Date.now();
+        const CLASE_AVISO_DISCAP = 'aviso-discapacidad';
+        const CLASE_AVISO_FIES = 'aviso-fies';
+        const CATEGORIA_NO_APLICA = '3822';
+        const EDAD_MINIMA_FIES = 65;
+        let fiesEl = null;
+        let logHecho = false;
 
-        function localizar() {
-            return (IDS.nombre_grupo ? buscarPorId(IDS.nombre_grupo) : null)
-                || localizarPorEtiqueta(/^nombre\s+(del\s+)?grupo/);
+        // "dd/mm/aaaa" o "aaaa-mm-dd" -> años cumplidos (NaN si no se entiende)
+        function edadDesdeFecha(valor) {
+            const s = String(valor || '').trim();
+            let y, m, d, r;
+            if ((r = /^(\d{4})-(\d{2})-(\d{2})/.exec(s))) { y = +r[1]; m = +r[2]; d = +r[3]; }
+            else if ((r = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(s))) { d = +r[1]; m = +r[2]; y = +r[3]; }
+            else return NaN;
+            const hoy = new Date();
+            let e = hoy.getFullYear() - y;
+            if (hoy.getMonth() + 1 < m || (hoy.getMonth() + 1 === m && hoy.getDate() < d)) e--;
+            return e >= 0 && e < 130 ? e : NaN;
         }
 
-        function bloquear(campo) {
-            if (campo.value !== '') {
-                if (campo.tagName === 'SELECT') campo.selectedIndex = 0; else campo.value = '';
-                campo.dispatchEvent(new Event('input', { bubbles: true }));
-                campo.dispatchEvent(new Event('change', { bubbles: true }));
+        function leerEdad() {
+            const el = getEdad();
+            const e = el ? parseInt(el.value, 10) : NaN;
+            if (!isNaN(e)) return e;
+            const f = getCampo('fecha') || document.querySelector('[id*="' + IDS.fecha + '"]');
+            return f ? edadDesdeFecha(f.value) : NaN;
+        }
+
+        // ---- a) Discapacidad vs categoría ----
+        function evaluarDiscapacidad() {
+            const difs = Array.from(document.querySelectorAll('select[id*="' + IDS.pob_dif + '"]'));
+            const cats = Array.from(document.querySelectorAll('select[id*="' + IDS.categoria_discapacidad + '"]'));
+            const total = Math.min(difs.length, cats.length);
+
+            for (let i = 0; i < total; i++) {
+                const dif = difs[i], cat = cats[i];
+                const t = sinTildes(textoElegido(dif));
+                const esDiscapacidad = /discapacidad/.test(t) && !/\b(sin|no)\b.*discapacidad/.test(t);
+                const incoherente = esDiscapacidad
+                    && (estaVacio(cat) || esNoAplica(cat) || cat.value === CATEGORIA_NO_APLICA);
+
+                marcarIncoherente(dif, incoherente);
+                marcarIncoherente(cat, incoherente);
+                const quien = total > 1 ? `Persona ${i + 1}: ` : '';
+                sincronizarAviso(cat, CLASE_AVISO_DISCAP, 'error', incoherente
+                    ? `⚠ ${quien}la Población diferencial es Discapacidad, así que la Categoría de discapacidad debe diligenciarse (no puede quedar en "No aplica").`
+                    : '');
             }
-            if (campo.dataset.bloqueadoPorScript === '1') return;
-            campo.dataset.bloqueadoPorScript = '1';
-            console.log('[Nombre del grupo] bloqueado:', campo.id || campo.name || campo);
-            campo.readOnly = true;
-            campo.tabIndex = -1;
-            campo.title = 'Este formato no lleva Nombre del grupo';
-            Object.assign(campo.style, { backgroundColor: '#e0e0e0', cursor: 'not-allowed', pointerEvents: 'none' });
-            campo.addEventListener('mousedown', (e) => e.preventDefault());
-            campo.addEventListener('keydown', (e) => e.preventDefault());
         }
 
-        function revisar() {
-            if (!campoGrupo || !campoGrupo.isConnected) campoGrupo = localizar();
-            if (campoGrupo) { bloquear(campoGrupo); return; }
-            if (!avisoConsola && Date.now() - t0 > 8000) {
-                avisoConsola = true;
-                console.warn('[Nombre del grupo] No se encontró el campo. Revise IDS.nombre_grupo.');
+        // ---- b) FIES solo desde los 65 años ----
+        function seleccionarNoAplica(campo) {
+            if (campo.tagName !== 'SELECT') return false;
+            const op = Array.from(campo.options).find((o) => esNoAplicaTexto(o.text));
+            if (!op) return false;
+            aplicar(campo, op.value);
+            ['input', 'change'].forEach((ev) => campo.dispatchEvent(new Event(ev, { bubbles: true })));
+            return true;
+        }
+
+        function evaluarFies() {
+            if (!fiesEl || !fiesEl.isConnected) fiesEl = localizarCampo(/\bfies\b/, 'fies');
+            const edad = leerEdad();
+
+            if (!logHecho && fiesEl) {
+                logHecho = true;
+                console.log('[Coherencias] FIES:', fiesEl.id || fiesEl.name, '| edad actual:', isNaN(edad) ? 'NO ENCONTRADA' : edad);
             }
+
+            if (!fiesEl || isNaN(edad) || edad >= EDAD_MINIMA_FIES) {
+                marcarIncoherente(fiesEl, false);
+                quitarAvisos(CLASE_AVISO_FIES);
+                return;
+            }
+
+            if (estaVacio(fiesEl)) {
+                seleccionarNoAplica(fiesEl); // la siguiente revisión ya la ve en "No aplica"
+                return;
+            }
+
+            const ok = esNoAplica(fiesEl);
+            marcarIncoherente(fiesEl, !ok);
+            sincronizarAviso(fiesEl, CLASE_AVISO_FIES, 'error', ok ? ''
+                : `⚠ La escala FIES aplica desde los ${EDAD_MINIMA_FIES} años y esta persona tiene ${edad}. Debe quedar en "No aplica".`);
         }
 
-        setInterval(revisar, 700);
-        revisar();
-    }); // fin bloquearNombreGrupo
-
+        vigilar(function () {
+            ejecutarSeguro('Coherencia discapacidad', evaluarDiscapacidad);
+            ejecutarSeguro('Coherencia FIES', evaluarFies);
+        });
+    }); // fin coherencias
 
 })();
-
