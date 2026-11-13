@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SESIONES INSTITUCIONAL
 // @namespace    https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
-// @version      2026.11.11.2
-// @description  Institucional: solo se activa en la base Institucional (guard por IDs). Valores por defecto, cascadas documento/sexo/género, sesiones, validador edad/documento, autocompletado por cédula (Comprobador de Derechos + Supersalud), aviso de Tema opcional (líneas 5 y 6), bloqueo de Nombre del grupo y coherencias (Discapacidad vs Categoría, FIES desde 65 años)
+// @version      2026.11.13.1
+// @description  Institucional: solo se activa en la base Institucional (guard por IDs). Valores por defecto, cascadas documento/sexo/género, sesiones, validador edad/documento, autocompletado por cédula (Comprobador de Derechos + Supersalud), aviso de Tema opcional (líneas 5 y 6), bloqueo de Nombre del grupo, coherencias (Discapacidad vs Categoría, FIES desde 65 años), valores por defecto de Tamizajes, comprobador de documentos Personas vs Tamizajes y validaciones de nombres/documento
 // @author       You
 // @match        https://gesiapps.saludcapital.gov.co/GESI_sistemas/GESI_Form*
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
@@ -45,6 +45,9 @@
         rol_institucion: 'valorControl19146',
         canalizacion: 'valorControl19148',
         porquenosecanalizo: 'valorControl19149',
+        // Pestaña Tamizajes
+        doc_tamizajes: 'valorControl19154',
+        oms: 'valorControl19155',
         // Escala FIES: si se conoce el ID, escríbalo aquí (ej. 'valorControl12345').
         // Mientras esté vacío, el campo se ubica por su etiqueta ("FIES").
         fies: '',
@@ -54,10 +57,12 @@
     // GUARD — el script SOLO arranca si la página es la base Institucional.
     // Se reconoce por IDs que únicamente existen en esta base.
     // En cualquier otra base solo corre una comprobación barata cada 1.5 s.
+    // (Se incluyen los IDs de la pestaña Tamizajes para que también arranque allí.)
     // ════════════════════════════════════════════════════════════════════
     const MARCADORES_INSTITUCIONAL = [
         IDS.nombres, IDS.tipo_doc, IDS.cedula, IDS.linea_operativa,
         IDS.nombre_grupo, 'valorControl19008', 'valorControl19147',
+        IDS.doc_tamizajes, IDS.oms,
     ].map((id) => '[id^="' + id + '"]').join(',');
 
     function esBaseInstitucional() {
@@ -236,7 +241,7 @@
     }
 
     // ════════════════════════════════════════════════════════════════════
-    // INICIO — aquí arrancan los 7 bloques (solo en la base Institucional)
+    // INICIO — aquí arrancan los 10 bloques (solo en la base Institucional)
     // ════════════════════════════════════════════════════════════════════
     function iniciar() {
 
@@ -272,8 +277,8 @@
                 Pob_inclusion: '4048',
                 categoria_discapacidad: '3822',
                 etapa_gestacion: '3785',
-                canalizacion: '',
-                porquenosecanalizo: '',
+                canalizacion: '959',
+                porquenosecanalizo: '4129',
                 ocupacion: '1063',
             };
             const GRUPOS_DOC = [
@@ -1170,6 +1175,268 @@
                 ejecutarSeguro('Coherencia FIES', evaluarFies);
             });
         }); // fin coherencias
+
+        // ════════════════════════════════════════════════════════════════
+        // BLOQUE 8 — VALORES POR DEFECTO DE TAMIZAJES
+        // Si el campo OMS existe, se llena (solo si está vacío) y, al cambiarlo,
+        // se llenan los demás campos de tamizajes que sigan vacíos.
+        // ════════════════════════════════════════════════════════════════
+        ejecutarSeguro('Valores por defecto tamizajes', function tamizajesPorDefecto() {
+
+            const oms = document.querySelector('#' + IDS.oms);
+            if (!oms) return;
+
+            const DEFECTOS_TAMIZAJES = [
+                ['valorControl19156', '4452'], // find
+                ['valorControl19157', '4453'], // frecuencia cardíaca
+                ['valorControl19158', '4454'], // tensión arterial
+                ['valorControl19160', '4185'], // 10 a 17
+                ['valorControl19161', '4232'], // 18
+                ['valorControl19163', '4253'], // 40
+                ['valorControl19164', '4191'], // ojo derecho
+                ['valorControl19165', '4191'], // ojo izquierdo
+                ['valorControl19167', '4235'], // oído derecho
+                ['valorControl19168', '4235'], // oído izquierdo
+                ['valorControl19170', '4457'], // intención reproductiva
+                ['valorControl19171', '4457'], // satisfacción
+                ['valorControl19172', '4258'], // cuidado menstrual
+                ['valorControl19173', '4455'], // mini-cog
+                ['valorControl19174', '4456'], // clasificación de riesgo
+                ['valorControl19176', '4258'], // aplica tamizaje
+                ['valorControl19180', '4272'], // escala FIES
+                ['valorControl19182', '4458'], // enfrentar mejor
+                ['valorControl19183', '4458'], // mejorar manejo
+                ['valorControl19184', '4458'], // tomar mejores
+                ['valorControl19186', '4460'], // mi bienestar
+                ['valorControl19179', '4459'], // nutricional
+            ];
+
+            function aplicarDefectosTamizajes() {
+                DEFECTOS_TAMIZAJES.forEach(([id, valor]) => asignarSiVacio(document.querySelector('#' + id), valor));
+            }
+
+            asignarSiVacio(oms, '4182');
+            aplicarDefectosTamizajes();
+            oms.addEventListener('change', aplicarDefectosTamizajes);
+        }); // fin tamizajesPorDefecto
+
+        // ════════════════════════════════════════════════════════════════
+        // BLOQUE 9 — COMPROBADOR DOCUMENTOS PERSONAS vs TAMIZAJES
+        // En Personas acumula los documentos digitados; en Tamizajes avisa si el
+        // documento digitado no fue registrado en Personas.
+        // ════════════════════════════════════════════════════════════════
+        ejecutarSeguro('Comprobador documentos', function comprobadorDocumentos() {
+
+            const ID_DOC_PERSONAS   = IDS.cedula;
+            const ID_DOC_TAMIZAJES  = IDS.doc_tamizajes;
+            // Claves PROPIAS de este script (para no chocar con otros scripts del mismo dominio)
+            const KEY_DOCS_PERSONAS = 'inst_comprobador_docs_personas';
+            const KEY_CONSECUTIVO   = 'inst_comprobador_consecutivo';
+
+            function mostrarAviso(doc) {
+                const previo = document.getElementById('comprobador-aviso');
+                if (previo) previo.remove();
+                const aviso = document.createElement('div');
+                aviso.id = 'comprobador-aviso';
+                aviso.style.cssText = `position:fixed;top:20px;right:20px;z-index:99999;background:#fff3cd;
+                    border:2px solid #e0a800;border-radius:8px;padding:16px 20px;max-width:360px;
+                    box-shadow:0 4px 12px rgba(0,0,0,0.2);font-family:Arial,sans-serif;font-size:13px;color:#333;`;
+                aviso.innerHTML = `
+                    <div style="font-weight:bold;font-size:14px;margin-bottom:10px;color:#c8700e;">⚠️ Documento no coincide</div>
+                    <div style="padding:8px;background:#fff;border-radius:4px;border-left:3px solid red;">
+                        El documento <strong><code class="comprobador-doc"></code></strong> en Tamizajes<br>
+                        <span style="color:red">no fue registrado en la pestaña Personas.</span>
+                    </div>
+                    <button id="comprobador-cerrar" style="margin-top:10px;width:100%;padding:6px;
+                        background:#e0a800;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px;">
+                        ✖ Cerrar
+                    </button>`;
+                aviso.querySelector('.comprobador-doc').textContent = doc; // textContent: no interpreta HTML
+                document.body.appendChild(aviso);
+                document.getElementById('comprobador-cerrar').addEventListener('click', () => aviso.remove());
+            }
+
+            function obtenerDocs() {
+                try { return JSON.parse(localStorage.getItem(KEY_DOCS_PERSONAS) || '[]'); } catch { return []; }
+            }
+            function guardarDocs(docs) { localStorage.setItem(KEY_DOCS_PERSONAS, JSON.stringify(docs)); }
+            function limpiarStorage() {
+                localStorage.removeItem(KEY_DOCS_PERSONAS);
+                localStorage.removeItem(KEY_CONSECUTIVO);
+            }
+
+            function verificarFichaNueva() {
+                const consecutivo = document.querySelector('[id*="Consecutivo"], [name*="consecutivo"], [id*="consecutivo"]');
+                if (!consecutivo) return;
+                const valorActual   = (consecutivo.value || consecutivo.textContent || '').trim();
+                const valorGuardado = localStorage.getItem(KEY_CONSECUTIVO);
+                if (valorGuardado && valorActual !== valorGuardado) limpiarStorage();
+                if (valorActual) localStorage.setItem(KEY_CONSECUTIVO, valorActual);
+            }
+
+            function modoPersonas() {
+                verificarFichaNueva();
+                const campo = document.getElementById(ID_DOC_PERSONAS);
+                if (!campo) return;
+                function acumular() {
+                    const val = campo.value.trim();
+                    if (val === '') return;
+                    const acumulado = new Set(obtenerDocs());
+                    acumulado.add(val);
+                    guardarDocs(Array.from(acumulado));
+                }
+                acumular();
+                ['input', 'change', 'blur'].forEach(ev => campo.addEventListener(ev, acumular));
+            }
+
+            function modoTamizajes() {
+                const campo = document.getElementById(ID_DOC_TAMIZAJES);
+                if (!campo) return;
+
+                // Guardar el valor que tenía al cargar la página
+                const valorAlCargar = campo.value.trim();
+
+                function verificarDoc() {
+                    const doc = campo.value.trim();
+                    if (doc === '') return;
+                    const docs = obtenerDocs();
+                    if (docs.length === 0) return;
+                    campo.style.border = campo.style.background = '';
+                    const previo = document.getElementById('comprobador-aviso');
+                    if (previo) previo.remove();
+                    if (!docs.includes(doc)) {
+                        campo.style.border = '2px solid red';
+                        campo.style.background = '#fff0f0';
+                        mostrarAviso(doc);
+                    }
+                }
+
+                // Solo verificar al cargar si el campo estaba vacío al inicio.
+                // Si ya tenía valor, era una ficha existente — no mostrar aviso
+                if (valorAlCargar === '') {
+                    setTimeout(verificarDoc, 1200);
+                }
+
+                // Siempre verificar cuando el usuario escribe algo nuevo
+                let timer = null;
+                ['input', 'change', 'blur'].forEach(ev => {
+                    campo.addEventListener(ev, () => {
+                        // Solo verificar si el valor cambió respecto al que tenía al cargar
+                        if (campo.value.trim() !== valorAlCargar) {
+                            clearTimeout(timer);
+                            timer = setTimeout(verificarDoc, 1500);
+                        }
+                    });
+                });
+            }
+
+            function detectarYEjecutar() {
+                if (document.getElementById(ID_DOC_PERSONAS)) modoPersonas();
+                if (document.getElementById(ID_DOC_TAMIZAJES)) modoTamizajes();
+            }
+
+            if (document.readyState === 'complete') detectarYEjecutar();
+            else window.addEventListener('load', detectarYEjecutar);
+
+        }); // fin comprobadorDocumentos
+
+        // ════════════════════════════════════════════════════════════════
+        // BLOQUE 10 — VALIDACIONES: NOMBRES Y DOCUMENTO (sin fecha de intervención)
+        //  - Nombres/apellidos: solo letras, espacios, apóstrofo y guion.
+        //  - Documento: solo números (alfanumérico para tipos 65 y 66), con longitud
+        //    de 6 a 10 (6 a 12 en alfanuméricos), validada al salir del campo.
+        // ════════════════════════════════════════════════════════════════
+        ejecutarSeguro('Validaciones nombres y documento', function addValidations() {
+            const $  = s => document.querySelector(s);
+            const $$ = s => document.querySelectorAll(s);
+
+            const NAME_SELECTORS = ['#' + IDS.nombres, '#' + IDS.apellidos];
+            const DOC_SELECTOR = '#' + IDS.cedula;
+            const TIPO_DOC_SELECTOR = '#' + IDS.tipo_doc;
+            const nameSanitizeRegex = /[^\p{L}\s'-]/gu;
+
+            function attachNameFilters(selector) {
+                Array.from($$(selector)).forEach(input => {
+                    if (!input) return;
+                    input.addEventListener('input', () => {
+                        const old = input.value, cleaned = old.replace(nameSanitizeRegex, '');
+                        if (old !== cleaned) {
+                            input.value = cleaned; input.style.border = '2px solid #e6a0a0'; input.style.background = '#fff5f5';
+                            clearTimeout(input._nameValidTimer);
+                            input._nameValidTimer = setTimeout(() => { input.style.border = ''; input.style.background = ''; }, 1200);
+                        }
+                    });
+                    input.addEventListener('keypress', ev => {
+                        const ch = ev.key;
+                        if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+                        if (ch.length === 1 && !ch.match(/[\p{L}\s'-]/u)) ev.preventDefault();
+                    });
+                    input.addEventListener('paste', ev => {
+                        ev.preventDefault();
+                        const text = (ev.clipboardData || window.clipboardData).getData('text') || '', cleaned = text.replace(nameSanitizeRegex, '');
+                        input.setRangeText(cleaned, input.selectionStart || 0, input.selectionEnd || 0, 'end');
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                    });
+                });
+            }
+
+            function attachDocFilter(selector, tipoDocSelector = TIPO_DOC_SELECTOR) {
+                const input = $(selector);
+                if (!input) return;
+
+                const esAlfanumerico = () => {
+                    const tipoDoc = $(tipoDocSelector);
+                    return tipoDoc && ['65', '66'].includes(String(tipoDoc.value).trim());
+                };
+
+                input.addEventListener('input', () => {
+                    const regex = esAlfanumerico() ? /[^\p{L}\p{N}]/gu : /[^\p{N}]/gu;
+                    const old = input.value, cleaned = old.replace(regex, '');
+                    if (old !== cleaned) input.value = cleaned;
+                    input.style.border = ''; input.style.background = '';
+                    const prev = input.parentNode ? input.parentNode.querySelector('.mensaje-doc') : null;
+                    if (prev) prev.remove();
+                });
+
+                input.addEventListener('paste', ev => {
+                    ev.preventDefault();
+                    const regex = esAlfanumerico() ? /[^\p{L}\p{N}]/gu : /[^\p{N}]/gu;
+                    const text = (ev.clipboardData || window.clipboardData).getData('text') || '', cleaned = text.replace(regex, '');
+                    input.setRangeText(cleaned, input.selectionStart || 0, input.selectionEnd || 0, 'end');
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                });
+
+                input.addEventListener('blur', () => {
+                    const val = (input.value || '').trim(), esAlfa = esAlfanumerico(), min = 6, max = esAlfa ? 12 : 10;
+                    const prev = input.parentNode ? input.parentNode.querySelector('.mensaje-doc') : null;
+                    if (prev) prev.remove();
+                    if (val.length === 0) return;
+                    if (val.length < min || val.length > max) {
+                        input.style.border = '2px solid red'; input.style.background = '#fff0f0';
+                        if (input.parentNode) {
+                            input.parentNode.appendChild(crearAviso('error',
+                                `⚠ El documento debe tener entre ${min} y ${max} ${esAlfa ? 'caracteres' : 'números'} (actual: ${val.length}).`,
+                                'mensaje-doc'));
+                        }
+                    }
+                });
+
+                const tipoDoc = $(tipoDocSelector);
+                if (tipoDoc) {
+                    tipoDoc.addEventListener('change', () => { input.dispatchEvent(new Event('input', { bubbles: true })); });
+                }
+            }
+
+            function start() {
+                NAME_SELECTORS.forEach((selector) => {
+                    attachNameFilters(selector);
+                });
+
+                attachDocFilter(DOC_SELECTOR);
+            }
+
+            if (document.readyState === 'complete') start(); else window.addEventListener('load', start);
+        }); // fin addValidations
 
     } // fin iniciar
 
